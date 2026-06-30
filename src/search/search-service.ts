@@ -5,7 +5,7 @@ export interface SearchResult extends Record<string, unknown> {
   id: string;
   telegramChatId: number;
   telegramMessageId: number;
-  telegramDate: Date;
+  telegramDate: Date | string;
   currentText: string | null;
   messageType: string;
   attachmentNames: string | null;

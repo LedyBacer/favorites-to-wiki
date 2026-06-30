@@ -8,6 +8,7 @@ import { MessageService } from "../domain/messages/message-service.js";
 import { SearchService } from "../search/search-service.js";
 import { LocalStorage } from "../storage/local-storage.js";
 import {
+  formatTelegramDate,
   formatRecentMessage,
   formatSavedAck,
   shortText,
@@ -106,7 +107,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         .map((result) => {
           const link = telegramMessageLink(result.telegramChatId, result.telegramMessageId);
           return [
-            `${result.telegramDate.toISOString().slice(0, 16).replace("T", " ")} · ${result.messageType}`,
+            `${formatTelegramDate(result.telegramDate)} · ${result.messageType}`,
             shortText(result.currentText),
             result.attachmentNames ? `Files: ${result.attachmentNames}` : "",
             link ?? "",
@@ -140,7 +141,15 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   });
 
   bot.catch((error) => {
-    logger.error({ error }, "Telegram bot error");
+    logger.error(
+      {
+        errorName: error.name,
+        message: error.message,
+        cause: error.error instanceof Error ? error.error.message : String(error.error),
+        updateId: error.ctx.update.update_id,
+      },
+      "Telegram bot error",
+    );
   });
 
   return bot;
