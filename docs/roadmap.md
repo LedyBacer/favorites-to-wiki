@@ -12,6 +12,7 @@ The remote Docker host was also validated:
 - bundled migrations ran successfully from the app image;
 - app service started with production Telegram credentials;
 - the first backlog Telegram text message from the allowed owner was ingested and stored in PostgreSQL.
+- real media/update smoke test passed: photos, documents, voice, video, and one edited text message were archived.
 
 Latest committed work on `main`:
 
@@ -48,6 +49,12 @@ Latest committed work on `main`:
 - Added `tsconfig.build.json` so production builds emit only runtime source files.
 - Started the app container on the Proxmox Docker host with real Telegram credentials.
 - Verified that a real Telegram text message from the allowed owner was saved to PostgreSQL.
+- Verified real Telegram media ingestion on the Proxmox deployment:
+  - 8 messages stored;
+  - 9 message versions stored;
+  - 6 attachments downloaded;
+  - all downloaded attachments have local paths and SHA-256 hashes;
+  - one edited text message produced version 1 and version 2.
 - Added an app container healthcheck that verifies PostgreSQL and local storage availability.
 
 ### Partially Completed
@@ -159,17 +166,18 @@ Priority: highest.
   - `/status`.
 - Verify through PostgreSQL:
   - completed for the first text message: `messages` rows exist;
-  - `message_versions` has version 1 and edited versions;
-  - `attachments` rows are downloaded or correctly marked;
-  - storage volume contains downloaded files.
+  - completed: `message_versions` has version 1 and edited versions;
+  - completed: `attachments` rows are downloaded or correctly marked;
+  - completed: storage volume contains downloaded files.
 
 Exit criteria:
 
 - completed: app container stays running;
 - bot accepts messages only from the allowed user;
 - completed for text ingestion: a real owner message is archived;
-- at least one attachment is downloaded with SHA-256;
-- editing a saved text creates one new version and repeating the same edit does not create duplicates.
+- completed: at least one attachment is downloaded with SHA-256;
+- completed: editing a saved text creates one new version;
+- pending verification: repeating the same edit does not create duplicate versions in a real Telegram flow.
 
 ### Phase 1.2 - Strengthen Persistence
 
