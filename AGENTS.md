@@ -44,6 +44,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Docker Compose overrides `DATABASE_URL` for the app container to `postgres://favorites:favorites@postgres:5432/favorites`; `.env.example` keeps `localhost` for direct host-local development.
 - The Proxmox Docker app container has been started with real Telegram credentials, and the first allowed-user text message was saved to PostgreSQL.
 - `MessageService.saveTelegramMessage` uses a database transaction for source-message writes and resolves `reply_to_message_id` when the replied-to message already exists.
+- The app service has a Docker healthcheck command at `dist/app/healthcheck.js` that verifies PostgreSQL and local storage.
 
 ## Maintenance Rule
 

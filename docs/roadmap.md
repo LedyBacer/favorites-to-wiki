@@ -48,6 +48,7 @@ Latest committed work on `main`:
 - Added `tsconfig.build.json` so production builds emit only runtime source files.
 - Started the app container on the Proxmox Docker host with real Telegram credentials.
 - Verified that a real Telegram text message from the allowed owner was saved to PostgreSQL.
+- Added an app container healthcheck that verifies PostgreSQL and local storage availability.
 
 ### Partially Completed
 
@@ -56,7 +57,7 @@ Latest committed work on `main`:
 - **Forward metadata:** the available Telegram `forward_origin` summary is stored, but no grouping or bundle inference is implemented.
 - **Attachment retries:** failed downloads are marked as `failed`, but there is no retry scheduler, backoff, or CLI/admin command to retry them.
 - **Search result quality:** search works, but ranking is still basic and result snippets are simple truncations rather than highlighted fragments.
-- **Status/health:** `/status` checks database statistics and storage availability through Telegram, but there is no HTTP healthcheck endpoint for Docker or external monitoring.
+- **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
 - **Testing:** deterministic unit tests exist, but integration tests with real PostgreSQL, migration verification, and bot handler tests are still missing.
 - **Deployment:** Docker build and migration were validated on the Proxmox Docker host, but app startup with a real Telegram token is pending.
 
@@ -259,7 +260,7 @@ Exit criteria:
 Priority: medium.
 
 - Add an HTTP health endpoint or a small healthcheck command for Docker.
-- Add Docker `healthcheck` for the app service.
+- Completed: add Docker `healthcheck` for the app service.
 - Add structured startup summary:
   - config mode;
   - storage root;
