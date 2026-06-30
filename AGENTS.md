@@ -47,6 +47,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Telegram message inserts use `onConflictDoNothing` for `(telegram_chat_id, telegram_message_id)`, and version writes are serialized by a PostgreSQL transaction advisory lock per internal message ID.
 - The app service has a Docker healthcheck command at `dist/app/healthcheck.js` that verifies PostgreSQL and local storage.
 - Real Telegram smoke test on the Proxmox deployment stored 8 messages, 9 versions, and 6 downloaded attachments with local paths and SHA-256 hashes.
+- PostgreSQL integration tests live under `tests/integration` and run with `TEST_DATABASE_URL=... npm run test:integration`.
 
 ## Maintenance Rule
 

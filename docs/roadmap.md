@@ -56,6 +56,7 @@ Latest committed work on `main`:
   - all downloaded attachments have local paths and SHA-256 hashes;
   - one edited text message produced version 1 and version 2.
 - Added an app container healthcheck that verifies PostgreSQL and local storage availability.
+- Added PostgreSQL integration tests for migration idempotency, concurrent duplicate first delivery, concurrent identical edits, and concurrent different edits.
 
 ### Partially Completed
 
@@ -65,7 +66,7 @@ Latest committed work on `main`:
 - **Attachment retries:** failed downloads are marked as `failed`, but there is no retry scheduler, backoff, or CLI/admin command to retry them.
 - **Search result quality:** search works, but ranking is still basic and result snippets are simple truncations rather than highlighted fragments.
 - **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
-- **Testing:** deterministic unit tests exist, but integration tests with real PostgreSQL, migration verification, and bot handler tests are still missing.
+- **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are still missing.
 - **Deployment:** Docker build and migration were validated on the Proxmox Docker host, but app startup with a real Telegram token is pending.
 
 ### Not Started By Design
@@ -93,16 +94,16 @@ Why it matters:
 
 - the code now handles Telegram message identity conflicts as idempotent inserts;
 - message version writes are serialized per internal message ID;
-- this path still needs tests that deliberately run duplicate writes in parallel.
+- this path is covered by integration tests that deliberately run duplicate writes in parallel.
 
 ### 2. Migration Validation
 
-Migrations ran successfully on the remote PostgreSQL container, but local automated integration coverage is still missing.
+Migrations ran successfully on the remote PostgreSQL container and are covered by integration tests against a real PostgreSQL database.
 
 Why it matters:
 
 - Drizzle schema and handwritten SQL can drift;
-- future migrations need repeatable validation in CI or local test containers.
+- future migrations should be run in CI or local test containers as part of the integration suite.
 
 ### 3. Attachment Download Lifecycle
 
@@ -186,16 +187,16 @@ Priority: high.
 - Completed: wrap message save/version/attachment row creation in a database transaction.
 - Completed: use PostgreSQL conflict-safe insert patterns for `(telegram_chat_id, telegram_message_id)` and `(message_id, content_hash)`.
 - Completed: resolve `reply_to_message_id` to the internal message UUID when the target message already exists.
-- Add a small repository-level integration test suite against a disposable PostgreSQL instance.
-- Add migration smoke tests:
+- Completed: add a small repository-level integration test suite against a disposable PostgreSQL instance.
+- Completed: add migration smoke tests:
   - apply migrations from empty DB;
   - verify all expected tables, enums, and indexes exist;
   - verify startup migration runner is idempotent.
 
 Exit criteria:
 
-- pending: concurrent duplicate save tests pass;
-- migration tests can be run locally with one command;
+- completed: concurrent duplicate save tests pass;
+- completed: migration tests can be run with `npm run test:integration` and `TEST_DATABASE_URL`;
 - reply links work for messages already present in the archive.
 
 ### Phase 1.3 - Improve Attachment Reliability

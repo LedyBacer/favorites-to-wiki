@@ -78,7 +78,14 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 npm run typecheck
 npm run lint
 npm test
+npm run test:integration
 npm run build
+```
+
+`npm run test:integration` requires a PostgreSQL database URL:
+
+```bash
+TEST_DATABASE_URL=postgres://favorites:favorites@localhost:5432/favorites_integration npm run test:integration
 ```
 
 Generate Drizzle migrations after schema changes:
