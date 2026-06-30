@@ -1,0 +1,86 @@
+import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
+import path from "node:path";
+import fetch from "node-fetch";
+import { buildAttachmentRelativePath } from "./path.js";
+
+export interface StoredFile {
+  relativePath: string;
+  sha256: string;
+  sizeBytes: number;
+}
+
+export class LocalStorage {
+  constructor(private readonly root: string) {}
+
+  async ensureReady() {
+    await mkdir(this.root, { recursive: true });
+    await stat(this.root);
+  }
+
+  async download(input: {
+    url: string;
+    uniqueFileId: string;
+    originalFileName?: string | undefined;
+    mimeType?: string | undefined;
+    maxBytes: number;
+  }): Promise<StoredFile> {
+    await this.ensureReady();
+    const relativePath = buildAttachmentRelativePath(input);
+    const finalPath = path.join(this.root, relativePath);
+    const tempPath = `${finalPath}.part`;
+    await mkdir(path.dirname(finalPath), { recursive: true });
+
+    const response = await fetch(input.url);
+    if (!response.ok || !response.body) {
+      throw new Error(`Telegram file download failed with HTTP ${response.status}`);
+    }
+
+    const contentLength = Number(response.headers.get("content-length") ?? 0);
+    if (contentLength > input.maxBytes) {
+      throw new Error(`File is too large: ${contentLength} bytes`);
+    }
+
+    const hash = createHash("sha256");
+    let sizeBytes = 0;
+    const writer = createWriteStream(tempPath, { flags: "wx" });
+
+    try {
+      for await (const chunk of response.body) {
+        const buffer = Buffer.from(chunk);
+        sizeBytes += buffer.byteLength;
+        if (sizeBytes > input.maxBytes) {
+          throw new Error(`File is too large: ${sizeBytes} bytes`);
+        }
+        hash.update(buffer);
+        if (!writer.write(buffer)) {
+          await new Promise<void>((resolve) => writer.once("drain", resolve));
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        writer.end((error: Error | null | undefined) => (error ? reject(error) : resolve()));
+      });
+      await rename(tempPath, finalPath);
+    } catch (error) {
+      writer.destroy();
+      await rm(tempPath, { force: true });
+      throw error;
+    }
+
+    return {
+      relativePath,
+      sha256: hash.digest("hex"),
+      sizeBytes,
+    };
+  }
+
+  async fileSha256(relativePath: string) {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path.join(this.root, relativePath));
+    for await (const chunk of stream) {
+      hash.update(Buffer.from(chunk));
+    }
+    return hash.digest("hex");
+  }
+}
