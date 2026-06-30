@@ -84,6 +84,12 @@ npm run build
 npm run attachments:retry
 ```
 
+In Docker Compose production, run the compiled retry entry point inside the app image:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20
+```
+
 `npm run test:integration` requires a PostgreSQL database URL:
 
 ```bash

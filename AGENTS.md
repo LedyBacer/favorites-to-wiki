@@ -49,6 +49,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Real Telegram smoke test on the Proxmox deployment stored 8 messages, 9 versions, and 6 downloaded attachments with local paths and SHA-256 hashes.
 - PostgreSQL integration tests live under `tests/integration` and run with `TEST_DATABASE_URL=... npm run test:integration`.
 - Attachment retries track `download_attempts`, `last_download_attempt_at`, and `next_retry_at`; retry entry points are `/retry_attachments` and `npm run attachments:retry`.
+- In Docker Compose production, run attachment retry as `docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20`.
 
 ## Maintenance Rule
 

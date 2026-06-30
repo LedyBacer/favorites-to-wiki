@@ -210,6 +210,7 @@ Priority: high.
   - final failure reason.
 - Completed: add command and CLI to retry failed attachments.
 - Completed: avoid re-downloading a file when a downloaded attachment with the same `telegram_file_unique_id` already has a local path and SHA-256.
+- Completed: verify the production Docker retry entry point on the Proxmox host.
 - Add integration tests for:
   - too-large files;
   - partial download cleanup;
