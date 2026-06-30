@@ -41,6 +41,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Integration tests with real PostgreSQL are not yet wired; current tests focus on deterministic policy.
 - Production build uses `tsconfig.build.json` so only `src` is emitted.
 - The app applies bundled Drizzle migrations at startup via `drizzle-orm/node-postgres/migrator`; the production image does not depend on `drizzle-kit`.
+- Docker Compose overrides `DATABASE_URL` for the app container to `postgres://favorites:favorites@postgres:5432/favorites`; `.env.example` keeps `localhost` for direct host-local development.
 
 ## Maintenance Rule
 

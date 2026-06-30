@@ -53,6 +53,8 @@ docker compose up --build
 
 PostgreSQL data is stored in the `postgres_data` volume. Telegram files are stored in the `telegram_files` volume mounted at `/app/data/storage`.
 
+`docker-compose.yml` overrides `DATABASE_URL` for the app container to use the `postgres` service hostname. Keep `.env` with `localhost` when running the bot directly on the host.
+
 ## Telegram Bot Setup
 
 1. Open Telegram and message `@BotFather`.
