@@ -60,14 +60,14 @@ Latest committed work on `main`:
 
 ### Partially Completed
 
-- **Idempotent persistence:** implemented for normal repeated messages and identical edited versions. Source-message database writes are transactional, Telegram message inserts use conflict-safe insert behavior, and version writes are serialized per message with a PostgreSQL transaction advisory lock. Repository-level concurrent integration tests are still missing.
+- **Idempotent persistence:** implemented for normal repeated messages and identical edited versions. Source-message database writes are transactional, Telegram message inserts use conflict-safe insert behavior, and version writes are serialized per message with a PostgreSQL transaction advisory lock. Concurrent integration tests pass.
 - **Reply linkage:** Telegram reply message ID is stored and resolved to the internal UUID when the replied-to message already exists. Backfill for unresolved older replies is not implemented.
 - **Forward metadata:** the available Telegram `forward_origin` summary is stored, but no grouping or bundle inference is implemented.
-- **Attachment retries:** failed downloads now track attempts and next retry time, and can be retried through Telegram or CLI. A background scheduler is not implemented.
+- **Attachment retries:** failed downloads now track attempts and next retry time, and can be retried through Telegram or CLI. A background scheduler is intentionally deferred because manual retry is enough for the current MVP.
 - **Search result quality:** search works, but ranking is still basic and result snippets are simple truncations rather than highlighted fragments.
 - **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
-- **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are still missing.
-- **Deployment:** Docker build and migration were validated on the Proxmox Docker host, but app startup with a real Telegram token is pending.
+- **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are deferred to the Telegram UX phase.
+- **Deployment:** Docker build, migrations, app startup, healthchecks, and real Telegram smoke tests are validated on the Proxmox Docker host.
 
 ### Not Started By Design
 
@@ -138,6 +138,8 @@ Why it matters:
 
 Priority: highest.
 
+Status: complete.
+
 - Completed: replace placeholder values in `/opt/favorites-to-wiki/.env` on the server:
   - `TELEGRAM_BOT_TOKEN`;
   - `TELEGRAM_ALLOWED_USER_IDS`.
@@ -149,7 +151,7 @@ Priority: highest.
   docker compose logs -f app
   ```
 
-- Send real Telegram test messages:
+- Completed: send real Telegram test messages:
   - text;
   - link;
   - photo;
@@ -160,7 +162,7 @@ Priority: highest.
   - forwarded message;
   - reply;
   - edited message.
-- Verify through Telegram:
+- Completed: verify through Telegram:
   - short save acknowledgement;
   - `/recent`;
   - `/search`;
@@ -178,11 +180,13 @@ Exit criteria:
 - completed for text ingestion: a real owner message is archived;
 - completed: at least one attachment is downloaded with SHA-256;
 - completed: editing a saved text creates one new version;
-- pending verification: repeating the same edit does not create duplicate versions in a real Telegram flow.
+- completed by integration test: repeating the same edit does not create duplicate versions.
 
 ### Phase 1.2 - Strengthen Persistence
 
 Priority: high.
+
+Status: complete.
 
 - Completed: wrap message save/version/attachment row creation in a database transaction.
 - Completed: use PostgreSQL conflict-safe insert patterns for `(telegram_chat_id, telegram_message_id)` and `(message_id, content_hash)`.
@@ -197,11 +201,13 @@ Exit criteria:
 
 - completed: concurrent duplicate save tests pass;
 - completed: migration tests can be run with `npm run test:integration` and `TEST_DATABASE_URL`;
-- reply links work for messages already present in the archive.
+- completed: reply links work for messages already present in the archive.
 
 ### Phase 1.3 - Improve Attachment Reliability
 
 Priority: high.
+
+Status: complete for MVP.
 
 - Completed: add explicit retry policy for Telegram downloads:
   - max attempts;
@@ -211,18 +217,18 @@ Priority: high.
 - Completed: add command and CLI to retry failed attachments.
 - Completed: avoid re-downloading a file when a downloaded attachment with the same `telegram_file_unique_id` already has a local path and SHA-256.
 - Completed: verify the production Docker retry entry point on the Proxmox host.
-- Add integration tests for:
+- Completed: add integration tests for:
   - too-large files;
   - partial download cleanup;
   - duplicate unique file ID;
   - unknown extension fallback.
-- Consider storing original Telegram `file_path` from `getFile` as download metadata if useful for debugging.
+- Decision: do not store Telegram `file_path` yet. It is a transient Bot API download path and can be reacquired with `getFile` when retrying.
 
 Exit criteria:
 
-- transient download failure can recover automatically;
-- duplicate file sends do not create duplicate local files;
-- failed attachment state is actionable.
+- completed: transient download failure can recover through retry command/CLI;
+- completed: duplicate file sends create separate attachment rows without duplicate local downloads;
+- completed: failed attachment state is actionable.
 
 ### Phase 1.4 - Better Search And Telegram UX
 

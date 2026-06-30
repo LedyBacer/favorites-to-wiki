@@ -138,6 +138,22 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it("resolves reply links when the replied-to message already exists", async () => {
+    const parent = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1006, text: "parent" }),
+    );
+
+    await service.saveTelegramMessage({
+      ...messageInput({ telegramMessageId: 1007, text: "reply" }),
+      replyToTelegramMessageId: 1006,
+    });
+
+    const reply = await db.query.messages.findFirst({
+      where: (table, { eq }) => eq(table.telegramMessageId, 1007),
+    });
+    expect(reply?.replyToMessageId).toBe(parent.messageId);
+  });
+
   async function countMessagesAndVersions() {
     const result = await db.execute<{ messages_count: string; versions_count: string }>(sql`
       select

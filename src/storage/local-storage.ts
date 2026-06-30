@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import fetch from "node-fetch";
+import fetch, { type Response } from "node-fetch";
 import { buildAttachmentRelativePath } from "./path.js";
 
 export interface StoredFile {
@@ -12,7 +12,10 @@ export interface StoredFile {
 }
 
 export class LocalStorage {
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    private readonly fetchFile: (url: string) => Promise<Response> = fetch,
+  ) {}
 
   async ensureReady() {
     await mkdir(this.root, { recursive: true });
@@ -32,7 +35,7 @@ export class LocalStorage {
     const tempPath = `${finalPath}.part`;
     await mkdir(path.dirname(finalPath), { recursive: true });
 
-    const response = await fetch(input.url);
+    const response = await this.fetchFile(input.url);
     if (!response.ok || !response.body) {
       throw new Error(`Telegram file download failed with HTTP ${response.status}`);
     }
