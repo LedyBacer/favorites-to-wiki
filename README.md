@@ -91,6 +91,8 @@ Apply migrations:
 npm run db:migrate
 ```
 
+The application also applies bundled Drizzle migrations on startup, so Docker Compose deployment does not require `drizzle-kit` inside the production image.
+
 ## Telegram Export Import
 
 Importer entry point:

@@ -40,6 +40,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - No OCR, ASR, embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
 - Integration tests with real PostgreSQL are not yet wired; current tests focus on deterministic policy.
 - Production build uses `tsconfig.build.json` so only `src` is emitted.
+- The app applies bundled Drizzle migrations at startup via `drizzle-orm/node-postgres/migrator`; the production image does not depend on `drizzle-kit`.
 
 ## Maintenance Rule
 

@@ -1,6 +1,7 @@
 import { createBot } from "../bot/bot.js";
 import { loadConfig } from "../config/env.js";
 import { createDatabase } from "../db/client.js";
+import { runMigrations } from "../db/migrate.js";
 import { createLogger } from "../observability/logger.js";
 
 const config = loadConfig();
@@ -18,4 +19,6 @@ process.once("SIGTERM", () => {
 });
 
 logger.info("Starting Telegram bot");
+logger.info("Applying database migrations");
+await runMigrations(database.db);
 await bot.start();
