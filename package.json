@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "attachments:retry": "tsx src/app/retry-attachments.ts",
     "import:telegram": "tsx src/import/telegram-export.ts"
   },
   "dependencies": {

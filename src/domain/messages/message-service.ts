@@ -151,7 +151,9 @@ export class MessageService {
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
         })
-        .onConflictDoNothing({ target: attachments.telegramFileUniqueId });
+        .onConflictDoNothing({
+          target: [attachments.messageId, attachments.telegramFileUniqueId],
+        });
     }
 
     return {
@@ -196,11 +198,17 @@ export class MessageService {
       messages_count: string;
       attachments_count: string;
       downloaded_count: string;
+      pending_count: string;
+      failed_count: string;
+      skipped_too_large_count: string;
     }>(sql`
       select
         (select count(*) from messages) as messages_count,
         (select count(*) from attachments) as attachments_count,
-        (select count(*) from attachments where download_status = 'downloaded') as downloaded_count
+        (select count(*) from attachments where download_status = 'downloaded') as downloaded_count,
+        (select count(*) from attachments where download_status = 'pending') as pending_count,
+        (select count(*) from attachments where download_status = 'failed') as failed_count,
+        (select count(*) from attachments where download_status = 'skipped_too_large') as skipped_too_large_count
     `);
     return result.rows[0]!;
   }

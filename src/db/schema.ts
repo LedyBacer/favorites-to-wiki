@@ -129,11 +129,19 @@ export const attachments = pgTable(
     localPath: text("local_path"),
     sha256: text("sha256"),
     downloadStatus: attachmentDownloadStatus("download_status").notNull().default("pending"),
+    downloadAttempts: integer("download_attempts").notNull().default(0),
+    lastDownloadAttemptAt: timestamp("last_download_attempt_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    uniqueFileUq: unique("attachments_unique_file_uq").on(table.telegramFileUniqueId),
+    messageFileUq: unique("attachments_message_file_uq").on(
+      table.messageId,
+      table.telegramFileUniqueId,
+    ),
+    uniqueFileIdx: index("attachments_unique_file_idx").on(table.telegramFileUniqueId),
+    retryIdx: index("attachments_retry_idx").on(table.downloadStatus, table.nextRetryAt),
     filenameSearchIdx: index("attachments_filename_search_idx").using(
       "gin",
       sql`to_tsvector('simple', coalesce(${table.originalFileName}, ''))`,

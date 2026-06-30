@@ -32,6 +32,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     bot.api,
     config.TELEGRAM_BOT_TOKEN,
     config.MAX_ATTACHMENT_BYTES,
+    config.MAX_ATTACHMENT_DOWNLOAD_ATTEMPTS,
   );
 
   bot.use(async (ctx, next) => {
@@ -81,6 +82,9 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
           `Messages: ${stats.messages_count}`,
           `Attachments: ${stats.attachments_count}`,
           `Downloaded: ${stats.downloaded_count}`,
+          `Pending: ${stats.pending_count}`,
+          `Failed: ${stats.failed_count}`,
+          `Skipped too large: ${stats.skipped_too_large_count}`,
         ].join("\n"),
       );
     } catch (error) {
@@ -89,6 +93,20 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         `Status: degraded\n${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  });
+
+  bot.command("retry_attachments", async (ctx) => {
+    const summary = await attachmentService.retryFailedAttachments(20);
+    await ctx.reply(
+      [
+        "Attachment retry complete",
+        `Attempted: ${summary.attempted}`,
+        `Downloaded: ${summary.downloaded}`,
+        `Reused: ${summary.reused}`,
+        `Skipped too large: ${summary.skippedTooLarge}`,
+        `Failed: ${summary.failed}`,
+      ].join("\n"),
+    );
   });
 
   bot.command("search", async (ctx) => {

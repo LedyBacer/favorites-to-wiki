@@ -19,6 +19,7 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(50 * 1024 * 1024),
+  MAX_ATTACHMENT_DOWNLOAD_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
   BOT_ACKNOWLEDGEMENTS: z
     .enum(["true", "false", "1", "0"])
     .default("true")

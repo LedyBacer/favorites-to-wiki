@@ -71,6 +71,7 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 - `/recent` - last saved items.
 - `/status` - PostgreSQL, storage, and basic stats.
 - `/search query` - PostgreSQL full-text search over message text/captions and file names.
+- `/retry_attachments` - retry failed or pending attachment downloads that are due.
 
 ## Development Commands
 
@@ -80,6 +81,7 @@ npm run lint
 npm test
 npm run test:integration
 npm run build
+npm run attachments:retry
 ```
 
 `npm run test:integration` requires a PostgreSQL database URL:

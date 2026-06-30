@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type Database } from "../../src/db/client.js";
 import { runMigrations } from "../../src/db/migrate.js";
-import { messageVersions } from "../../src/db/schema.js";
+import { attachments, messageVersions } from "../../src/db/schema.js";
 import { MessageService } from "../../src/domain/messages/message-service.js";
 import type { SaveMessageInput } from "../../src/domain/messages/types.js";
 
@@ -118,6 +118,26 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
     expect(versionRows.map((row) => row.version)).toEqual([1, 2, 3]);
   });
 
+  it("records duplicate Telegram files separately for different messages", async () => {
+    await service.saveTelegramMessage(
+      messageInput({
+        telegramMessageId: 1004,
+        text: "first file message",
+        attachmentUniqueId: "same-telegram-file",
+      }),
+    );
+    await service.saveTelegramMessage(
+      messageInput({
+        telegramMessageId: 1005,
+        text: "second file message",
+        attachmentUniqueId: "same-telegram-file",
+      }),
+    );
+
+    const rows = await db.select({ id: attachments.id }).from(attachments);
+    expect(rows).toHaveLength(2);
+  });
+
   async function countMessagesAndVersions() {
     const result = await db.execute<{ messages_count: string; versions_count: string }>(sql`
       select
@@ -131,7 +151,11 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
   }
 });
 
-function messageInput(input: { telegramMessageId: number; text: string }): SaveMessageInput {
+function messageInput(input: {
+  telegramMessageId: number;
+  text: string;
+  attachmentUniqueId?: string;
+}): SaveMessageInput {
   return {
     telegramChatId: 9001,
     telegramMessageId: input.telegramMessageId,
@@ -140,6 +164,16 @@ function messageInput(input: { telegramMessageId: number; text: string }): SaveM
     text: input.text,
     messageType: "text",
     metadata: { chatType: "private", integrationTest: true },
-    attachments: [],
+    attachments: input.attachmentUniqueId
+      ? [
+          {
+            telegramFileId: `file-${input.attachmentUniqueId}`,
+            telegramFileUniqueId: input.attachmentUniqueId,
+            originalFileName: "same-file.txt",
+            mimeType: "text/plain",
+            sizeBytes: 12,
+          },
+        ]
+      : [],
   };
 }

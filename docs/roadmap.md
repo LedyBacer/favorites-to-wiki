@@ -63,7 +63,7 @@ Latest committed work on `main`:
 - **Idempotent persistence:** implemented for normal repeated messages and identical edited versions. Source-message database writes are transactional, Telegram message inserts use conflict-safe insert behavior, and version writes are serialized per message with a PostgreSQL transaction advisory lock. Repository-level concurrent integration tests are still missing.
 - **Reply linkage:** Telegram reply message ID is stored and resolved to the internal UUID when the replied-to message already exists. Backfill for unresolved older replies is not implemented.
 - **Forward metadata:** the available Telegram `forward_origin` summary is stored, but no grouping or bundle inference is implemented.
-- **Attachment retries:** failed downloads are marked as `failed`, but there is no retry scheduler, backoff, or CLI/admin command to retry them.
+- **Attachment retries:** failed downloads now track attempts and next retry time, and can be retried through Telegram or CLI. A background scheduler is not implemented.
 - **Search result quality:** search works, but ranking is still basic and result snippets are simple truncations rather than highlighted fragments.
 - **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
 - **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are still missing.
@@ -203,13 +203,13 @@ Exit criteria:
 
 Priority: high.
 
-- Add explicit retry policy for Telegram downloads:
+- Completed: add explicit retry policy for Telegram downloads:
   - max attempts;
   - exponential backoff;
   - persistent attempt count or processing job;
   - final failure reason.
-- Add command or CLI to retry failed attachments.
-- Avoid re-downloading a file when a downloaded attachment with the same `telegram_file_unique_id` already has a local path and SHA-256.
+- Completed: add command and CLI to retry failed attachments.
+- Completed: avoid re-downloading a file when a downloaded attachment with the same `telegram_file_unique_id` already has a local path and SHA-256.
 - Add integration tests for:
   - too-large files;
   - partial download cleanup;
