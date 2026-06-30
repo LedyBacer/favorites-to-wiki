@@ -59,7 +59,7 @@ Latest committed work on `main`:
 
 ### Partially Completed
 
-- **Idempotent persistence:** implemented for normal repeated messages and identical edited versions; source-message database writes are transactional, but the path has not yet been stress-tested for concurrent duplicate updates.
+- **Idempotent persistence:** implemented for normal repeated messages and identical edited versions. Source-message database writes are transactional, Telegram message inserts use conflict-safe insert behavior, and version writes are serialized per message with a PostgreSQL transaction advisory lock. Repository-level concurrent integration tests are still missing.
 - **Reply linkage:** Telegram reply message ID is stored and resolved to the internal UUID when the replied-to message already exists. Backfill for unresolved older replies is not implemented.
 - **Forward metadata:** the available Telegram `forward_origin` summary is stored, but no grouping or bundle inference is implemented.
 - **Attachment retries:** failed downloads are marked as `failed`, but there is no retry scheduler, backoff, or CLI/admin command to retry them.
@@ -91,9 +91,9 @@ These were explicitly excluded from the first phase and should remain out until 
 
 Why it matters:
 
-- concurrent Telegram deliveries could race;
-- a unique constraint conflict should be handled as idempotent behavior, not as an avoidable bot error;
-- this path needs tests that deliberately run duplicate writes in parallel.
+- the code now handles Telegram message identity conflicts as idempotent inserts;
+- message version writes are serialized per internal message ID;
+- this path still needs tests that deliberately run duplicate writes in parallel.
 
 ### 2. Migration Validation
 
@@ -184,7 +184,7 @@ Exit criteria:
 Priority: high.
 
 - Completed: wrap message save/version/attachment row creation in a database transaction.
-- Use PostgreSQL upsert patterns more aggressively for `(telegram_chat_id, telegram_message_id)` and `(message_id, content_hash)`.
+- Completed: use PostgreSQL conflict-safe insert patterns for `(telegram_chat_id, telegram_message_id)` and `(message_id, content_hash)`.
 - Completed: resolve `reply_to_message_id` to the internal message UUID when the target message already exists.
 - Add a small repository-level integration test suite against a disposable PostgreSQL instance.
 - Add migration smoke tests:
@@ -194,7 +194,7 @@ Priority: high.
 
 Exit criteria:
 
-- concurrent duplicate save tests pass;
+- pending: concurrent duplicate save tests pass;
 - migration tests can be run locally with one command;
 - reply links work for messages already present in the archive.
 

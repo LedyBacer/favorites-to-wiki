@@ -4,7 +4,7 @@ import { attachments, messages, messageVersions } from "../../db/schema.js";
 import { hashMessageVersion } from "./hash.js";
 import type { SaveMessageInput, SaveMessageResult } from "./types.js";
 
-type MessageWriteDatabase = Pick<Database, "query" | "insert" | "update" | "select">;
+type MessageWriteDatabase = Pick<Database, "execute" | "query" | "insert" | "update" | "select">;
 
 export class MessageService {
   constructor(private readonly db: Database) {}
@@ -17,12 +17,6 @@ export class MessageService {
     db: MessageWriteDatabase,
     input: SaveMessageInput,
   ): Promise<SaveMessageResult> {
-    const existing = await db.query.messages.findFirst({
-      where: and(
-        eq(messages.telegramChatId, input.telegramChatId),
-        eq(messages.telegramMessageId, input.telegramMessageId),
-      ),
-    });
     const replyToMessageId = input.replyToTelegramMessageId
       ? await this.findInternalReplyMessageId(
           db,
@@ -33,45 +27,67 @@ export class MessageService {
 
     const now = new Date();
     const contentHash = hashMessageVersion(input.text, input.metadata);
-    let messageId: string;
-    let created = false;
     let versionCreated = false;
 
-    if (!existing) {
-      const inserted = await db
-        .insert(messages)
-        .values({
-          telegramChatId: input.telegramChatId,
-          telegramMessageId: input.telegramMessageId,
-          telegramUserId: input.telegramUserId,
-          telegramDate: input.telegramDate,
-          currentText: input.text,
-          messageType: input.messageType,
-          forwardOriginType: input.forward?.originType,
-          forwardSenderName: input.forward?.senderName,
-          forwardSenderUsername: input.forward?.senderUsername,
-          forwardChatTitle: input.forward?.chatTitle,
-          forwardDate: input.forward?.date,
-          replyToTelegramMessageId: input.replyToTelegramMessageId,
-          replyToMessageId,
-          lastTelegramEditDate: input.telegramEditDate,
-          metadata: input.metadata,
-          updatedAt: now,
-        })
-        .returning({ id: messages.id });
-      messageId = inserted[0]!.id;
-      created = true;
-      versionCreated = true;
-      await db.insert(messageVersions).values({
-        messageId,
-        version: 1,
-        telegramEditDate: input.telegramEditDate,
-        text: input.text,
-        contentHash,
+    const insertedMessage = await db
+      .insert(messages)
+      .values({
+        telegramChatId: input.telegramChatId,
+        telegramMessageId: input.telegramMessageId,
+        telegramUserId: input.telegramUserId,
+        telegramDate: input.telegramDate,
+        currentText: input.text,
+        messageType: input.messageType,
+        forwardOriginType: input.forward?.originType,
+        forwardSenderName: input.forward?.senderName,
+        forwardSenderUsername: input.forward?.senderUsername,
+        forwardChatTitle: input.forward?.chatTitle,
+        forwardDate: input.forward?.date,
+        replyToTelegramMessageId: input.replyToTelegramMessageId,
+        replyToMessageId,
+        lastTelegramEditDate: input.telegramEditDate,
         metadata: input.metadata,
-      });
+        updatedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [messages.telegramChatId, messages.telegramMessageId],
+      })
+      .returning({ id: messages.id });
+
+    const existing = insertedMessage[0]
+      ? undefined
+      : await db.query.messages.findFirst({
+          where: and(
+            eq(messages.telegramChatId, input.telegramChatId),
+            eq(messages.telegramMessageId, input.telegramMessageId),
+          ),
+        });
+
+    if (!insertedMessage[0] && !existing) {
+      throw new Error("Failed to resolve message after Telegram identity conflict");
+    }
+
+    const messageId = insertedMessage[0]?.id ?? existing!.id;
+    const created = Boolean(insertedMessage[0]);
+    await this.lockMessageVersionWrites(db, messageId);
+
+    if (!existing) {
+      const insertedVersion = await db
+        .insert(messageVersions)
+        .values({
+          messageId,
+          version: 1,
+          telegramEditDate: input.telegramEditDate,
+          text: input.text,
+          contentHash,
+          metadata: input.metadata,
+        })
+        .onConflictDoNothing({
+          target: [messageVersions.messageId, messageVersions.contentHash],
+        })
+        .returning({ id: messageVersions.id });
+      versionCreated = insertedVersion.length > 0;
     } else {
-      messageId = existing.id;
       const duplicateVersion = await db.query.messageVersions.findFirst({
         where: and(
           eq(messageVersions.messageId, messageId),
@@ -97,15 +113,21 @@ export class MessageService {
             updatedAt: now,
           })
           .where(eq(messages.id, messageId));
-        await db.insert(messageVersions).values({
-          messageId,
-          version: nextVersion,
-          telegramEditDate: input.telegramEditDate,
-          text: input.text,
-          contentHash,
-          metadata: input.metadata,
-        });
-        versionCreated = true;
+        const insertedVersion = await db
+          .insert(messageVersions)
+          .values({
+            messageId,
+            version: nextVersion,
+            telegramEditDate: input.telegramEditDate,
+            text: input.text,
+            contentHash,
+            metadata: input.metadata,
+          })
+          .onConflictDoNothing({
+            target: [messageVersions.messageId, messageVersions.contentHash],
+          })
+          .returning({ id: messageVersions.id });
+        versionCreated = insertedVersion.length > 0;
       } else if (replyToMessageId && existing.replyToMessageId !== replyToMessageId) {
         await db
           .update(messages)
@@ -153,6 +175,10 @@ export class MessageService {
       ),
     });
     return repliedToMessage?.id;
+  }
+
+  private async lockMessageVersionWrites(db: MessageWriteDatabase, messageId: string) {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext(${messageId}))`);
   }
 
   async recent(limit: number) {
