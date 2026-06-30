@@ -10,13 +10,15 @@ The remote Docker host was also validated:
 - app image built successfully;
 - PostgreSQL service started and reported healthy;
 - bundled migrations ran successfully from the app image;
-- app service was not started because the remote `.env` still contains placeholder Telegram credentials.
+- app service started with production Telegram credentials;
+- the first backlog Telegram text message from the allowed owner was ingested and stored in PostgreSQL.
 
 Latest committed work on `main`:
 
 - `3fce1b1 Build Telegram inbox MVP`
 - `d675c2d Run database migrations on startup`
 - `8728523 Fix Docker database URL`
+- `87a3dcb Document project roadmap`
 
 ## Review Against The Original Plan
 
@@ -44,11 +46,13 @@ Latest committed work on `main`:
 - Added unit tests for allowlist, attachment path safety, and message versioning policy.
 - Added runtime migration execution so the production image does not depend on `drizzle-kit`.
 - Added `tsconfig.build.json` so production builds emit only runtime source files.
+- Started the app container on the Proxmox Docker host with real Telegram credentials.
+- Verified that a real Telegram text message from the allowed owner was saved to PostgreSQL.
 
 ### Partially Completed
 
-- **Idempotent persistence:** implemented for normal repeated messages and identical edited versions, but the main database write path is not yet wrapped in an explicit transaction and has not been stress-tested for concurrent duplicate updates.
-- **Reply linkage:** Telegram reply message ID is stored, but `reply_to_message_id` is not yet resolved to the internal UUID when the replied-to message exists.
+- **Idempotent persistence:** implemented for normal repeated messages and identical edited versions; source-message database writes are transactional, but the path has not yet been stress-tested for concurrent duplicate updates.
+- **Reply linkage:** Telegram reply message ID is stored and resolved to the internal UUID when the replied-to message already exists. Backfill for unresolved older replies is not implemented.
 - **Forward metadata:** the available Telegram `forward_origin` summary is stored, but no grouping or bundle inference is implemented.
 - **Attachment retries:** failed downloads are marked as `failed`, but there is no retry scheduler, backoff, or CLI/admin command to retry them.
 - **Search result quality:** search works, but ranking is still basic and result snippets are simple truncations rather than highlighted fragments.
@@ -73,15 +77,15 @@ These were explicitly excluded from the first phase and should remain out until 
 
 ## Key Technical Risks
 
-### 1. Database Write Atomicity
+### 1. Concurrent Duplicate Delivery
 
-`MessageService.saveTelegramMessage` currently performs multiple statements: read existing message, insert/update message, insert version, insert attachments. This is clear and works for MVP, but it should become a single transaction before heavier real-world use.
+`MessageService.saveTelegramMessage` now wraps source-message writes in a database transaction. The remaining risk is concurrent duplicate delivery around the same `(telegram_chat_id, telegram_message_id)` or identical edit hash.
 
 Why it matters:
 
 - concurrent Telegram deliveries could race;
-- a failure after message insert but before version insert could leave incomplete state;
-- attachment rows should be committed consistently with their source message.
+- a unique constraint conflict should be handled as idempotent behavior, not as an avoidable bot error;
+- this path needs tests that deliberately run duplicate writes in parallel.
 
 ### 2. Migration Validation
 
@@ -113,11 +117,10 @@ Why it matters:
 
 ### 5. Operational Secrets
 
-No secrets are committed, but the remote server still has placeholder `.env` values.
+No secrets are committed. The remote server now has a real `.env`, but it must remain out of Git and logs.
 
 Why it matters:
 
-- the app cannot start until real `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` are installed;
 - deployment docs should keep secrets out of Git and logs.
 
 ## Next Actions
@@ -126,10 +129,10 @@ Why it matters:
 
 Priority: highest.
 
-- Replace placeholder values in `/opt/favorites-to-wiki/.env` on the server:
+- Completed: replace placeholder values in `/opt/favorites-to-wiki/.env` on the server:
   - `TELEGRAM_BOT_TOKEN`;
   - `TELEGRAM_ALLOWED_USER_IDS`.
-- Start the app container:
+- Completed: start the app container:
 
   ```bash
   cd /opt/favorites-to-wiki
@@ -154,15 +157,16 @@ Priority: highest.
   - `/search`;
   - `/status`.
 - Verify through PostgreSQL:
-  - `messages` rows exist;
+  - completed for the first text message: `messages` rows exist;
   - `message_versions` has version 1 and edited versions;
   - `attachments` rows are downloaded or correctly marked;
   - storage volume contains downloaded files.
 
 Exit criteria:
 
-- app container stays running;
+- completed: app container stays running;
 - bot accepts messages only from the allowed user;
+- completed for text ingestion: a real owner message is archived;
 - at least one attachment is downloaded with SHA-256;
 - editing a saved text creates one new version and repeating the same edit does not create duplicates.
 
@@ -170,9 +174,9 @@ Exit criteria:
 
 Priority: high.
 
-- Wrap message save/version/attachment row creation in a database transaction.
+- Completed: wrap message save/version/attachment row creation in a database transaction.
 - Use PostgreSQL upsert patterns more aggressively for `(telegram_chat_id, telegram_message_id)` and `(message_id, content_hash)`.
-- Resolve `reply_to_message_id` to the internal message UUID when the target message already exists.
+- Completed: resolve `reply_to_message_id` to the internal message UUID when the target message already exists.
 - Add a small repository-level integration test suite against a disposable PostgreSQL instance.
 - Add migration smoke tests:
   - apply migrations from empty DB;

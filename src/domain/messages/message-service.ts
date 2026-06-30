@@ -4,16 +4,32 @@ import { attachments, messages, messageVersions } from "../../db/schema.js";
 import { hashMessageVersion } from "./hash.js";
 import type { SaveMessageInput, SaveMessageResult } from "./types.js";
 
+type MessageWriteDatabase = Pick<Database, "query" | "insert" | "update" | "select">;
+
 export class MessageService {
   constructor(private readonly db: Database) {}
 
   async saveTelegramMessage(input: SaveMessageInput): Promise<SaveMessageResult> {
-    const existing = await this.db.query.messages.findFirst({
+    return this.db.transaction(async (tx) => this.saveTelegramMessageInTransaction(tx, input));
+  }
+
+  private async saveTelegramMessageInTransaction(
+    db: MessageWriteDatabase,
+    input: SaveMessageInput,
+  ): Promise<SaveMessageResult> {
+    const existing = await db.query.messages.findFirst({
       where: and(
         eq(messages.telegramChatId, input.telegramChatId),
         eq(messages.telegramMessageId, input.telegramMessageId),
       ),
     });
+    const replyToMessageId = input.replyToTelegramMessageId
+      ? await this.findInternalReplyMessageId(
+          db,
+          input.telegramChatId,
+          input.replyToTelegramMessageId,
+        )
+      : undefined;
 
     const now = new Date();
     const contentHash = hashMessageVersion(input.text, input.metadata);
@@ -22,7 +38,7 @@ export class MessageService {
     let versionCreated = false;
 
     if (!existing) {
-      const inserted = await this.db
+      const inserted = await db
         .insert(messages)
         .values({
           telegramChatId: input.telegramChatId,
@@ -37,6 +53,7 @@ export class MessageService {
           forwardChatTitle: input.forward?.chatTitle,
           forwardDate: input.forward?.date,
           replyToTelegramMessageId: input.replyToTelegramMessageId,
+          replyToMessageId,
           lastTelegramEditDate: input.telegramEditDate,
           metadata: input.metadata,
           updatedAt: now,
@@ -45,7 +62,7 @@ export class MessageService {
       messageId = inserted[0]!.id;
       created = true;
       versionCreated = true;
-      await this.db.insert(messageVersions).values({
+      await db.insert(messageVersions).values({
         messageId,
         version: 1,
         telegramEditDate: input.telegramEditDate,
@@ -55,7 +72,7 @@ export class MessageService {
       });
     } else {
       messageId = existing.id;
-      const duplicateVersion = await this.db.query.messageVersions.findFirst({
+      const duplicateVersion = await db.query.messageVersions.findFirst({
         where: and(
           eq(messageVersions.messageId, messageId),
           eq(messageVersions.contentHash, contentHash),
@@ -63,22 +80,24 @@ export class MessageService {
       });
 
       if (!duplicateVersion) {
-        const versionRow = await this.db
+        const versionRow = await db
           .select({ value: max(messageVersions.version) })
           .from(messageVersions)
           .where(eq(messageVersions.messageId, messageId));
         const nextVersion = (versionRow[0]?.value ?? 0) + 1;
-        await this.db
+        await db
           .update(messages)
           .set({
             currentText: input.text,
             messageType: input.messageType,
+            replyToTelegramMessageId: input.replyToTelegramMessageId,
+            replyToMessageId,
             lastTelegramEditDate: input.telegramEditDate ?? existing.lastTelegramEditDate,
             metadata: input.metadata,
             updatedAt: now,
           })
           .where(eq(messages.id, messageId));
-        await this.db.insert(messageVersions).values({
+        await db.insert(messageVersions).values({
           messageId,
           version: nextVersion,
           telegramEditDate: input.telegramEditDate,
@@ -87,11 +106,20 @@ export class MessageService {
           metadata: input.metadata,
         });
         versionCreated = true;
+      } else if (replyToMessageId && existing.replyToMessageId !== replyToMessageId) {
+        await db
+          .update(messages)
+          .set({
+            replyToTelegramMessageId: input.replyToTelegramMessageId,
+            replyToMessageId,
+            updatedAt: now,
+          })
+          .where(eq(messages.id, messageId));
       }
     }
 
     for (const attachment of input.attachments) {
-      await this.db
+      await db
         .insert(attachments)
         .values({
           messageId,
@@ -110,6 +138,21 @@ export class MessageService {
       versionCreated,
       attachmentCount: input.attachments.length,
     };
+  }
+
+  private async findInternalReplyMessageId(
+    db: MessageWriteDatabase,
+    telegramChatId: number,
+    replyToTelegramMessageId: number,
+  ) {
+    const repliedToMessage = await db.query.messages.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(messages.telegramChatId, telegramChatId),
+        eq(messages.telegramMessageId, replyToTelegramMessageId),
+      ),
+    });
+    return repliedToMessage?.id;
   }
 
   async recent(limit: number) {
