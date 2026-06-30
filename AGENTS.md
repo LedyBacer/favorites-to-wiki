@@ -46,3 +46,5 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 ## Maintenance Rule
 
 Update this file whenever architecture, data ownership, persistence behavior, or module boundaries change materially.
+
+Operational status, completed work, known gaps, and next implementation phases are tracked in `docs/roadmap.md`.

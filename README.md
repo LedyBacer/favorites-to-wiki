@@ -116,6 +116,8 @@ The current importer is a scaffold only; live bot ingestion is the first milesto
 
 See [docs/architecture.md](docs/architecture.md).
 
+Project status and next steps are tracked in [docs/roadmap.md](docs/roadmap.md).
+
 Core modules:
 
 - `src/bot` - grammY bot, commands, handlers, allowlist middleware.
