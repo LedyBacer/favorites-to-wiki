@@ -258,7 +258,8 @@ Priority: medium.
 - Completed: add dry-run parsing, unsupported-type reporting, and summary counts.
 - Completed: map supported exported messages into `SaveMessageInput`-compatible records.
 - Completed: map exported file/photo paths into deterministic attachment inputs for later import.
-- Map exported files into attachment records.
+- Completed: add database import mode that writes mapped messages through `MessageService`.
+- Completed: store exported local files into local storage and mark imported attachment records as downloaded.
 - Completed: preserve curated export source metadata in mapped message inputs.
 - Make repeated import idempotent.
 - Completed: add dry-run mode:
@@ -268,7 +269,8 @@ Priority: medium.
   ```
 
 - Completed: add dry-run summary counts.
-- Add import progress logging for database writes.
+- Completed: add import summary counts for database writes.
+- Pending: run real Telegram Desktop export import smoke test against PostgreSQL.
 
 Exit criteria:
 

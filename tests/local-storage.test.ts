@@ -1,4 +1,4 @@
-import { rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Response } from "node-fetch";
 import { afterEach, describe, expect, it } from "vitest";
@@ -60,5 +60,25 @@ describe("LocalStorage", () => {
     });
 
     expect(relativePath.endsWith(".bin")).toBe(true);
+  });
+
+  it("stores local files idempotently", async () => {
+    const storage = new LocalStorage(storageRoot);
+    const sourcePath = path.join(storageRoot, "source", "payload.txt");
+    await mkdir(path.dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, "local export payload");
+
+    const input = {
+      sourcePath,
+      uniqueFileId: "local-file",
+      originalFileName: "payload.txt",
+      mimeType: "text/plain",
+      maxBytes: 1024,
+    };
+    const first = await storage.storeLocalFile(input);
+    const second = await storage.storeLocalFile(input);
+
+    expect(second).toEqual(first);
+    await expect(stat(path.join(storageRoot, first.relativePath))).resolves.toBeTruthy();
   });
 });

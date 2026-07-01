@@ -1,9 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { createDatabase, type Database } from "../db/client.js";
+import { attachments } from "../db/schema.js";
+import { MessageService } from "../domain/messages/message-service.js";
 import type { SaveMessageInput } from "../domain/messages/types.js";
+import { LocalStorage } from "../storage/local-storage.js";
 
 const textPartSchema = z.union([
   z.string(),
@@ -86,6 +91,33 @@ export interface MappedTelegramExportMessage {
   attachmentSourcePath?: string | undefined;
 }
 
+export interface TelegramExportImportSummary {
+  scanned: number;
+  saved: number;
+  created: number;
+  versionsCreated: number;
+  attachments: number;
+  attachmentsStored: number;
+  attachmentFailures: number;
+}
+
+interface TelegramExportImportRuntimeOptions {
+  databaseUrl: string;
+  storageRoot: string;
+  maxAttachmentBytes: number;
+  sourceFilePath: string;
+}
+
+const importEnvSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  STORAGE_ROOT: z.string().min(1).default("./data/storage"),
+  MAX_ATTACHMENT_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(50 * 1024 * 1024),
+});
+
 type TelegramExport = z.infer<typeof exportSchema>;
 type TelegramExportMessage = z.infer<typeof exportMessageSchema>;
 
@@ -157,6 +189,64 @@ export function mapTelegramDesktopExportToSaveInputs(
   });
 }
 
+export async function importTelegramDesktopExport(
+  input: unknown,
+  options: TelegramExportImportOptions & {
+    db: Database;
+    storage: LocalStorage;
+    exportDir: string;
+    maxAttachmentBytes: number;
+  },
+): Promise<TelegramExportImportSummary> {
+  const mapped = mapTelegramDesktopExportToSaveInputs(input, options);
+  const messageService = new MessageService(options.db);
+  const summary: TelegramExportImportSummary = {
+    scanned: mapped.length,
+    saved: 0,
+    created: 0,
+    versionsCreated: 0,
+    attachments: mapped.filter((message) => message.attachmentSourcePath).length,
+    attachmentsStored: 0,
+    attachmentFailures: 0,
+  };
+
+  for (const message of mapped) {
+    const result = await messageService.saveTelegramMessage(message.input);
+    summary.saved += 1;
+    if (result.created) summary.created += 1;
+    if (result.versionCreated) summary.versionsCreated += 1;
+
+    if (message.attachmentSourcePath && message.input.attachments[0]) {
+      try {
+        const stored = await options.storage.storeLocalFile({
+          sourcePath: resolve(options.exportDir, message.attachmentSourcePath),
+          uniqueFileId: message.input.attachments[0].telegramFileUniqueId,
+          originalFileName: message.input.attachments[0].originalFileName,
+          mimeType: message.input.attachments[0].mimeType,
+          maxBytes: options.maxAttachmentBytes,
+        });
+        await markImportedAttachmentDownloaded(
+          options.db,
+          result.messageId,
+          message.input.attachments[0].telegramFileUniqueId,
+          stored,
+        );
+        summary.attachmentsStored += 1;
+      } catch (error) {
+        await markImportedAttachmentFailed(
+          options.db,
+          result.messageId,
+          message.input.attachments[0].telegramFileUniqueId,
+          error,
+        );
+        summary.attachmentFailures += 1;
+      }
+    }
+  }
+
+  return summary;
+}
+
 function parseExportMessage(
   message: TelegramExportMessage,
 ): ParsedTelegramExportMessage | undefined {
@@ -223,6 +313,19 @@ function exportAttachmentId(path: string) {
   return `telegram-export:${createHash("sha256").update(path).digest("hex")}`;
 }
 
+function defaultImportIdentity(exportData: TelegramExport, sourceFilePath: string) {
+  const sourceKey = JSON.stringify({
+    id: exportData.id,
+    name: exportData.name,
+    type: exportData.type,
+    sourceFilePath,
+  });
+  const hash = createHash("sha256").update(sourceKey).digest("hex");
+  const chatId = -Number.parseInt(hash.slice(0, 12), 16);
+  const userId = Number.parseInt(hash.slice(12, 24), 16);
+  return { telegramChatId: chatId, telegramUserId: userId };
+}
+
 function exportMetadata(
   message: ParsedTelegramExportMessage,
   exportData: TelegramExport,
@@ -270,11 +373,57 @@ function printDryRunSummary(summary: TelegramExportDryRunSummary) {
   console.log(lines.filter(Boolean).join("\n"));
 }
 
+function printImportSummary(summary: TelegramExportImportSummary) {
+  console.log(
+    [
+      "Telegram export import complete",
+      `Scanned messages: ${summary.scanned}`,
+      `Saved messages: ${summary.saved}`,
+      `Created messages: ${summary.created}`,
+      `Versions created: ${summary.versionsCreated}`,
+      `Attachments: ${summary.attachments}`,
+      `Attachments stored: ${summary.attachmentsStored}`,
+      `Attachment failures: ${summary.attachmentFailures}`,
+    ].join("\n"),
+  );
+}
+
 function readJsonFile(path: string) {
   return JSON.parse(readFileSync(path, "utf8")) as unknown;
 }
 
-function main(argv: string[]) {
+function loadImportRuntimeOptions(sourceFilePath: string): TelegramExportImportRuntimeOptions {
+  const env = importEnvSchema.parse(process.env);
+  return {
+    databaseUrl: env.DATABASE_URL,
+    storageRoot: env.STORAGE_ROOT,
+    maxAttachmentBytes: env.MAX_ATTACHMENT_BYTES,
+    sourceFilePath,
+  };
+}
+
+async function runImport(input: unknown, options: TelegramExportImportRuntimeOptions) {
+  const parsed = exportSchema.parse(input);
+  const identity = defaultImportIdentity(parsed, options.sourceFilePath);
+  const database = createDatabase(options.databaseUrl);
+  const storage = new LocalStorage(options.storageRoot);
+
+  try {
+    const summary = await importTelegramDesktopExport(parsed, {
+      ...identity,
+      db: database.db,
+      storage,
+      exportDir: dirname(options.sourceFilePath),
+      maxAttachmentBytes: options.maxAttachmentBytes,
+      sourceFilePath: options.sourceFilePath,
+    });
+    printImportSummary(summary);
+  } finally {
+    await database.close();
+  }
+}
+
+async function main(argv: string[]) {
   const [exportPath, ...flags] = argv;
   const dryRun = flags.includes("--dry-run");
 
@@ -289,8 +438,7 @@ function main(argv: string[]) {
     return;
   }
   if (!dryRun) {
-    console.error("Database import is not implemented yet. Use --dry-run to inspect the export.");
-    process.exitCode = 1;
+    await runImport(readJsonFile(exportPath), loadImportRuntimeOptions(resolve(exportPath)));
     return;
   }
 
@@ -298,5 +446,54 @@ function main(argv: string[]) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
+}
+
+async function markImportedAttachmentDownloaded(
+  db: Database,
+  messageId: string,
+  telegramFileUniqueId: string,
+  stored: { relativePath: string; sha256: string; sizeBytes: number },
+) {
+  await db
+    .update(attachments)
+    .set({
+      localPath: stored.relativePath,
+      sha256: stored.sha256,
+      sizeBytes: stored.sizeBytes,
+      downloadStatus: "downloaded",
+      downloadAttempts: 0,
+      lastDownloadAttemptAt: new Date(),
+      nextRetryAt: null,
+      error: null,
+    })
+    .where(
+      and(
+        eq(attachments.messageId, messageId),
+        eq(attachments.telegramFileUniqueId, telegramFileUniqueId),
+      ),
+    );
+}
+
+async function markImportedAttachmentFailed(
+  db: Database,
+  messageId: string,
+  telegramFileUniqueId: string,
+  error: unknown,
+) {
+  await db
+    .update(attachments)
+    .set({
+      downloadStatus: "failed",
+      downloadAttempts: 1,
+      lastDownloadAttemptAt: new Date(),
+      nextRetryAt: null,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    .where(
+      and(
+        eq(attachments.messageId, messageId),
+        eq(attachments.telegramFileUniqueId, telegramFileUniqueId),
+      ),
+    );
 }

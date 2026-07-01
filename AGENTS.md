@@ -35,7 +35,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 
 ## Known Gaps
 
-- Telegram Desktop export importer supports dry-run parsing and summary reporting; database import is not wired yet.
+- Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, and local export file storage. Real PostgreSQL smoke testing with a user export is still pending.
 - No webhook HTTP server.
 - No OCR, ASR, embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
 - Integration tests with real PostgreSQL are not yet wired; current tests focus on deterministic policy.
