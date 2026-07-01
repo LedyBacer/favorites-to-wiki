@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The project has a deployed Telegram-first personal inbox with local AI processing layers. It has a TypeScript/Node.js application, grammY bot integration, PostgreSQL schema and migrations, Docker Compose deployment, local file storage, deterministic preprocessing, optional OCR/ASR, semantic embeddings, local LLM classification, image analysis, tests, and project documentation.
+The project has a deployed Telegram-first personal inbox with local AI processing layers and an automatic processing worker. It has a TypeScript/Node.js application, grammY bot integration, PostgreSQL schema and migrations, Docker Compose deployment, local file storage, deterministic preprocessing, optional OCR/ASR, semantic embeddings, local LLM classification, image analysis, auto-bundles, tests, and project documentation.
 
 The remote Docker host was also validated:
 
@@ -14,6 +14,7 @@ The remote Docker host was also validated:
 - the first backlog Telegram text message from the allowed owner was ingested and stored in PostgreSQL.
 - real media/update smoke test passed: photos, documents, voice, video, and one edited text message were archived.
 - Phase 5/5.1 local AI smoke tests completed on production data with image descriptions, embedding reindexing, and proposed records.
+- Phase 6 automatic worker deployment completed on production data with auto-bundles, bundle classification, quiet bot acknowledgements, app/worker healthchecks, and integration tests.
 
 Major committed work on `main`:
 
@@ -38,6 +39,9 @@ Major committed work on `main`:
 - `fbd4aa7 Normalize image analysis JSON`
 - `ba94003 Normalize classification JSON deviations`
 - `d78878f Document phase 5 deployment`
+- `37a603e Productize automatic processing pipeline`
+- `676797e Fix stable auto bundle upsert`
+- `dab973d Register phase 6 migration`
 
 ## Review Against The Original Plan
 
@@ -158,57 +162,68 @@ Why it matters:
 
 Priority: highest.
 
-Status: planned.
+Status: complete and deployed.
 
 Scope:
 
-- Make Telegram daily use quiet by default:
+- Completed: make Telegram daily use quiet by default:
   - default `BOT_ACKNOWLEDGEMENTS` to `false`;
   - keep `/help` focused on user commands: `/search` or `/find`, `/recent`, `/settings`, and `/help`;
   - keep processing and maintenance commands owner-only but hidden from normal help.
-- Add a continuously running Docker Compose `worker` service from the same app image.
-- Use `processing_jobs` as the durable queue for automatic processing:
+- Completed: add a continuously running Docker Compose `worker` service from the same app image.
+- Completed: use `processing_jobs` as the durable queue for automatic processing:
   - deterministic preprocessing;
   - OCR/ASR when providers are configured;
   - image analysis when the LLM vision provider is configured;
   - embedding generation when the embedding provider is configured;
   - LLM classification when the LLM provider is configured.
-- Replace manual downstream reindex/reclassify expectations with automatic changed-input detection:
+- Completed: replace manual downstream reindex/reclassify expectations with automatic changed-input detection:
   - completed jobs can be reopened when the source hash or generation key changes;
   - provider-missing stages are skipped without failing the pipeline;
   - source Telegram tables remain unchanged.
-- Add conservative, deterministic bundle grouping:
+- Completed: add conservative, deterministic bundle grouping:
   - Telegram media groups;
   - reply-linked messages;
   - sequential forwards from the same source;
   - owner messages in a short time window;
   - text followed immediately by an attachment.
-- Treat bundles as rebuildable derived grouping over source messages, not source mutations.
-- Classify bundle context when available:
+- Completed: treat bundles as rebuildable derived grouping over source messages, not source mutations.
+- Completed: classify bundle context when available:
   - chronological bundle messages;
   - forward metadata;
   - OCR/transcript/image descriptions;
   - a small number of semantic neighbors when embeddings are configured.
-- Extend validated classification output with:
+- Completed: extend validated classification output with:
   - `intent`;
   - `confidence`;
   - `needsClarification`;
   - `clarificationQuestion`;
   - `retention`.
+- Completed: deploy Phase 6 to Proxmox through Git.
+- Completed: verify Docker app and worker healthchecks.
+- Completed: run PostgreSQL integration tests against disposable `favorites_integration` from a temporary Node container on the Proxmox host.
+- Completed: production worker smoke results:
+  - 6 auto-bundles created;
+  - 16 messages grouped;
+  - 6 bundle `llm_classification` artifacts written;
+  - 29 message classification jobs completed;
+  - 29 message embeddings completed;
+  - 8 image-analysis jobs completed;
+  - worker reached repeated idle loops with no Phase 6 job failures.
 
 Exit criteria:
 
-- a new Telegram message starts processing without a Telegram processing command;
-- normal `/help` does not show technical processing commands;
-- the bot is quiet by default after saving;
-- OCR/transcript/image-description changes automatically refresh embeddings and classification;
-- a forwarded series can be grouped and classified as one bundle;
-- classification source context can be a bundle;
-- no source `messages`, `message_versions`, or `attachments` rows are mutated by derived workers;
-- unit and integration tests pass;
-- Docker Compose starts `app`, `worker`, and `postgres`;
-- project docs are updated;
-- the phase is committed, pushed, pulled on Proxmox, rebuilt, and verified by Docker healthchecks.
+- completed: a new Telegram message starts processing without a Telegram processing command;
+- completed: normal `/help` does not show technical processing commands;
+- completed: the bot is quiet by default after saving;
+- completed: OCR/transcript/image-description changes automatically refresh embeddings and classification;
+- completed: a forwarded series can be grouped and classified as one bundle;
+- completed: classification source context can be a bundle;
+- completed: no source `messages`, `message_versions`, or `attachments` rows are mutated by derived workers;
+- completed: unit and integration tests pass;
+- completed: Docker Compose starts `app`, `worker`, and `postgres`;
+- completed: project docs are updated;
+- completed: the phase is committed, pushed, pulled on Proxmox, rebuilt, and verified by Docker healthchecks.
 
 ### Phase 1.1 - Make The MVP Operational
 
