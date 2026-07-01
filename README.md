@@ -66,6 +66,8 @@ docker compose --profile asr up -d asr
 
 The OCR service defaults to PaddleOCR with `eslav_PP-OCRv5_mobile_rec`, covering Russian, Belarusian, Ukrainian, English, and numbers. The ASR service defaults to faster-whisper `large-v3` with Russian transcription. Model caches live in `ocr_models` and `asr_models` volumes. `OCR_SERVICE_URL` and `ASR_SERVICE_URL` can point to another machine instead of the local Compose services.
 
+OCR and ASR models are loaded lazily on the first processing request and unloaded from memory after 60 seconds of inactivity by default. Tune this with `OCR_MODEL_IDLE_UNLOAD_SECONDS` and `ASR_MODEL_IDLE_UNLOAD_SECONDS`.
+
 ## Telegram Bot Setup
 
 1. Open Telegram and message `@BotFather`.

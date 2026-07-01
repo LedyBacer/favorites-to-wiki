@@ -217,6 +217,13 @@ Model storage:
 - PaddleOCR model cache: `ocr_models` volume;
 - faster-whisper/Hugging Face cache: `asr_models` volume.
 
+Model memory lifecycle:
+
+- OCR and ASR models are loaded lazily on the first processing request;
+- loaded model objects are unloaded from process memory after 60 seconds without OCR/ASR requests;
+- tune the idle timeout with `OCR_MODEL_IDLE_UNLOAD_SECONDS` and `ASR_MODEL_IDLE_UNLOAD_SECONDS`;
+- Docker volumes keep downloaded model files, so unloading memory does not delete model caches.
+
 Defaults:
 
 - OCR recognition model: `eslav_PP-OCRv5_mobile_rec`;

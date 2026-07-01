@@ -1,7 +1,10 @@
 import cgi
+import gc
 import json
 import os
 import tempfile
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = os.environ.get("PADDLEOCR_RECOGNITION_MODEL", "eslav_PP-OCRv5_mobile_rec")
@@ -10,8 +13,11 @@ DEVICE = os.environ.get("PADDLEOCR_DEVICE", "cpu")
 HOST = os.environ.get("SERVICE_HOST", "0.0.0.0")
 PORT = int(os.environ.get("SERVICE_PORT", "8000"))
 API_KEY = os.environ.get("OCR_SERVICE_API_KEY")
+IDLE_UNLOAD_SECONDS = int(os.environ.get("MODEL_IDLE_UNLOAD_SECONDS", "60"))
 
 _ocr = None
+_last_used_at = 0.0
+_model_lock = threading.Lock()
 
 
 def get_ocr():
@@ -28,6 +34,29 @@ def get_ocr():
             device=DEVICE,
         )
     return _ocr
+
+
+def predict_ocr(tmp_path):
+    global _last_used_at
+    with _model_lock:
+        results = get_ocr().predict(input=tmp_path)
+        _last_used_at = time.monotonic()
+        return results
+
+
+def unload_idle_model_loop():
+    global _ocr
+    while True:
+        time.sleep(min(10, max(1, IDLE_UNLOAD_SECONDS // 2)))
+        with _model_lock:
+            if _ocr is None or _last_used_at == 0:
+                continue
+            idle_seconds = time.monotonic() - _last_used_at
+            if idle_seconds < IDLE_UNLOAD_SECONDS:
+                continue
+            print(f"Unloading OCR model after {idle_seconds:.0f}s idle", flush=True)
+            _ocr = None
+            gc.collect()
 
 
 def normalize_results(results):
@@ -82,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             tmp.write(file_item.file.read())
             tmp_path = tmp.name
         try:
-            results = get_ocr().predict(input=tmp_path)
+            results = predict_ocr(tmp_path)
             lines = normalize_results(results)
             self.send_json(
                 {
@@ -121,4 +150,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Starting OCR service on {HOST}:{PORT} with {MODEL} ({DEVICE})", flush=True)
+    threading.Thread(target=unload_idle_model_loop, daemon=True).start()
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
