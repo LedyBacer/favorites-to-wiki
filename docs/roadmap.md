@@ -261,7 +261,7 @@ Priority: medium.
 - Completed: add database import mode that writes mapped messages through `MessageService`.
 - Completed: store exported local files into local storage and mark imported attachment records as downloaded.
 - Completed: preserve curated export source metadata in mapped message inputs.
-- Make repeated import idempotent.
+- Completed: make repeated import idempotent.
 - Completed: add dry-run mode:
 
   ```bash
@@ -270,12 +270,13 @@ Priority: medium.
 
 - Completed: add dry-run summary counts.
 - Completed: add import summary counts for database writes.
-- Pending: run real Telegram Desktop export import smoke test against PostgreSQL.
+- Completed: run real Telegram Desktop export import smoke test against PostgreSQL.
+- Completed: report unavailable export attachments and store them as `skipped_too_large`.
 
 Exit criteria:
 
-- a real Telegram “Saved Messages” export can be imported repeatedly without duplicate messages;
-- unsupported export fields are reported, not silently discarded.
+- completed: a real Telegram “Saved Messages” export can be imported repeatedly without duplicate messages;
+- completed: unsupported export fields are reported, not silently discarded.
 
 ### Phase 1.6 - Observability And Operations
 

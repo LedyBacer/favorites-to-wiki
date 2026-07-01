@@ -35,7 +35,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 
 ## Known Gaps
 
-- Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, and local export file storage. Real PostgreSQL smoke testing with a user export is still pending.
+- Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, local export file storage, idempotent repeated imports, and unavailable attachment reporting through `skipped_too_large`.
 - No webhook HTTP server.
 - No OCR, ASR, embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
 - Integration tests with real PostgreSQL are not yet wired; current tests focus on deterministic policy.
@@ -50,7 +50,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - PostgreSQL integration tests live under `tests/integration` and run with `TEST_DATABASE_URL=... npm run test:integration`.
 - Attachment retries track `download_attempts`, `last_download_attempt_at`, and `next_retry_at`; retry entry points are `/retry_attachments` and `npm run attachments:retry`.
 - In Docker Compose production, run attachment retry as `docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20`.
-- Roadmap phases 1.1, 1.2, 1.3, and 1.4 are complete; current planned work is Phase 1.5 Telegram Desktop export import.
+- Roadmap phases 1.1, 1.2, 1.3, 1.4, and 1.5 are complete; current planned work is Phase 1.6 observability and operations.
 
 ## Maintenance Rule
 
