@@ -181,9 +181,10 @@ export class EmbeddingService {
     }
 
     const embeddedQuery = await this.client.embedText(query);
+    const queryVector = toPostgresDoubleArrayLiteral(embeddedQuery.embedding);
     const result = await this.db.execute<SemanticSearchResult>(sql`
       with query_embedding as (
-        select ${embeddedQuery.embedding}::double precision[] as vector
+        select ${queryVector}::double precision[] as vector
       ),
       scored as (
         select
@@ -289,6 +290,7 @@ export class EmbeddingService {
     embedding: number[],
     metadata: Record<string, unknown>,
   ) {
+    const vector = toPostgresDoubleArrayLiteral(embedding);
     await this.db.execute(sql`
       insert into embeddings (
         source_kind,
@@ -308,7 +310,7 @@ export class EmbeddingService {
         ${this.config.EMBEDDING_MODEL},
         ${embedding.length},
         ${contentHash},
-        ${embedding}::double precision[],
+        ${vector}::double precision[],
         ${JSON.stringify(metadata)}::jsonb,
         now()
       )
@@ -378,4 +380,16 @@ export class EmbeddingService {
     const delayMinutes = Math.min(24 * 60, 5 * 2 ** Math.max(0, attempts - 1));
     return new Date(Date.now() + delayMinutes * 60_000);
   }
+}
+
+function toPostgresDoubleArrayLiteral(values: number[]) {
+  if (values.length === 0) {
+    throw new Error("Embedding vector cannot be empty");
+  }
+  for (const value of values) {
+    if (!Number.isFinite(value)) {
+      throw new Error("Embedding vector contains a non-finite value");
+    }
+  }
+  return `{${values.join(",")}}`;
 }
