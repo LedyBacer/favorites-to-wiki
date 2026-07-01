@@ -76,8 +76,8 @@ export class EmbeddingService {
         jsonb_build_object(
           'phase', 4,
           'processorVersion', 1,
-          'provider', ${EMBEDDING_PROVIDER},
-          'model', ${this.config.EMBEDDING_MODEL}
+          'provider', ${EMBEDDING_PROVIDER}::text,
+          'model', ${this.config.EMBEDDING_MODEL}::text
         ),
         3
       from messages
