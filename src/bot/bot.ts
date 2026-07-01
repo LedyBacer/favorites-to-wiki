@@ -12,6 +12,14 @@ import {
   MediaProcessingService,
   type MediaProcessingSummary,
 } from "../domain/media-processing/media-processing-service.js";
+import {
+  ImageAnalysisService,
+  type ImageAnalysisSummary,
+} from "../domain/llm/image-analysis-service.js";
+import {
+  LlmClassificationService,
+  type LlmClassificationSummary,
+} from "../domain/llm/llm-classification-service.js";
 import { MessageService } from "../domain/messages/message-service.js";
 import {
   PreprocessingService,
@@ -21,6 +29,7 @@ import { SearchService } from "../search/search-service.js";
 import { LocalStorage } from "../storage/local-storage.js";
 import {
   formatRecentMessage,
+  formatProposal,
   formatSearchResult,
   formatSemanticSearchResult,
   formatSavedAck,
@@ -84,6 +93,31 @@ function formatEmbeddingSummary(summary: EmbeddingSummary) {
   ].join("\n");
 }
 
+function formatImageAnalysisSummary(summary: ImageAnalysisSummary) {
+  return [
+    "Анализ изображений завершен",
+    `Создано задач: ${summary.jobsCreated}`,
+    `Взято задач: ${summary.jobsClaimed}`,
+    `Завершено: ${summary.jobsCompleted}`,
+    `Ошибок: ${summary.jobsFailed}`,
+    `Артефактов записано: ${summary.artifactsWritten}`,
+  ].join("\n");
+}
+
+function formatClassificationSummary(summary: LlmClassificationSummary) {
+  return [
+    "LLM-классификация завершена",
+    `Создано задач: ${summary.jobsCreated}`,
+    `Взято задач: ${summary.jobsClaimed}`,
+    `Завершено: ${summary.jobsCompleted}`,
+    `Ошибок: ${summary.jobsFailed}`,
+    `Records предложено: ${summary.recordsWritten}`,
+    `Entities предложено: ${summary.entitiesWritten}`,
+    `Relations предложено: ${summary.relationsWritten}`,
+    `Артефактов записано: ${summary.artifactsWritten}`,
+  ].join("\n");
+}
+
 export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const bot = new Bot<BotContext>(config.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(hydrateFiles(config.TELEGRAM_BOT_TOKEN));
@@ -93,6 +127,8 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const preprocessingService = new PreprocessingService(db);
   const mediaProcessingService = new MediaProcessingService(db, config);
   const embeddingService = new EmbeddingService(db, config);
+  const imageAnalysisService = new ImageAnalysisService(db, config);
+  const classificationService = new LlmClassificationService(db, config);
   const storage = new LocalStorage(config.STORAGE_ROOT);
   const attachmentService = new AttachmentService(
     db,
@@ -133,8 +169,11 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         "/status - состояние хранилища и базы",
         "/preprocess - запустить пакет детерминированной предобработки",
         "/process_media - запустить пакет OCR/ASR обработки",
+        "/analyze_images - запустить пакет LLM-анализа изображений",
         "/embed - запустить пакет индексации embeddings",
         "/semantic запрос - семантический поиск по embeddings",
+        "/classify - запустить пакет LLM-классификации",
+        "/proposals - последние предложенные records",
       ].join("\n"),
     );
   });
@@ -157,6 +196,8 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
       const preprocessingStats = await preprocessingService.stats();
       const mediaProcessingStats = await mediaProcessingService.stats();
       const embeddingStats = await embeddingService.stats();
+      const imageAnalysisStats = await imageAnalysisService.stats();
+      const classificationStats = await classificationService.stats();
       await ctx.reply(
         [
           "Статус: ok",
@@ -180,9 +221,21 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
           `Embeddings выполняется: ${embeddingStats.running_count}`,
           `Embeddings завершено: ${embeddingStats.completed_count}`,
           `Embeddings ошибок: ${embeddingStats.failed_count}`,
+          `Анализ изображений ожидает: ${imageAnalysisStats.pending_count}`,
+          `Анализ изображений выполняется: ${imageAnalysisStats.running_count}`,
+          `Анализ изображений завершен: ${imageAnalysisStats.completed_count}`,
+          `Анализ изображений ошибок: ${imageAnalysisStats.failed_count}`,
+          `LLM-классификация ожидает: ${classificationStats.pending_count}`,
+          `LLM-классификация выполняется: ${classificationStats.running_count}`,
+          `LLM-классификация завершена: ${classificationStats.completed_count}`,
+          `LLM-классификация ошибок: ${classificationStats.failed_count}`,
           `Производных артефактов: ${preprocessingStats.artifact_count}`,
           `OCR/ASR артефактов: ${mediaProcessingStats.artifact_count}`,
+          `Image артефактов: ${imageAnalysisStats.artifact_count}`,
           `Embeddings: ${embeddingStats.embedding_count}`,
+          `Proposed records: ${classificationStats.record_count}`,
+          `Proposed entities: ${classificationStats.entity_count}`,
+          `Proposed relations: ${classificationStats.relation_count}`,
         ].join("\n"),
       );
     } catch (error) {
@@ -234,6 +287,41 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
       reindex,
     );
     await ctx.reply(formatEmbeddingSummary(summary));
+  });
+
+  bot.command("analyze_images", async (ctx) => {
+    const { limit, rest } = parseLimitPrefix(ctx.match, 3, 20);
+    const reprocess = rest === "reprocess" || rest === "--reprocess";
+    const summary = await imageAnalysisService.enqueueAndProcess(
+      `telegram-${ctx.from?.id}`,
+      limit,
+      reprocess,
+    );
+    await ctx.reply(formatImageAnalysisSummary(summary));
+  });
+
+  bot.command("classify", async (ctx) => {
+    const { limit, rest } = parseLimitPrefix(ctx.match, 3, 20);
+    const reclassify = rest === "reclassify" || rest === "--reclassify";
+    const summary = await classificationService.enqueueAndProcess(
+      `telegram-${ctx.from?.id}`,
+      limit,
+      reclassify,
+    );
+    await ctx.reply(formatClassificationSummary(summary));
+  });
+
+  bot.command("proposals", async (ctx) => {
+    const { limit } = parseLimitPrefix(ctx.match, 5, config.SEARCH_RESULT_LIMIT);
+    const proposals = await classificationService.recentProposals(limit);
+    if (proposals.length === 0) {
+      await ctx.reply("Предложенных records пока нет.");
+      return;
+    }
+    const text = proposals.map(formatProposal).join("\n\n");
+    for (const chunk of splitTelegramMessage(text)) {
+      await ctx.reply(chunk);
+    }
   });
 
   bot.command("search", async (ctx) => {

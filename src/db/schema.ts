@@ -69,6 +69,8 @@ export const derivedArtifactType = pgEnum("derived_artifact_type", [
   "ocr_text",
   "transcript",
   "embedding_reference",
+  "llm_classification",
+  "image_description",
 ]);
 
 export const messages = pgTable(
@@ -197,37 +199,58 @@ export const bundleMessages = pgTable(
   }),
 );
 
-export const records = pgTable("records", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  type: recordType("type").notNull().default("unknown"),
-  title: text("title"),
-  body: text("body"),
-  sourceMessageId: uuid("source_message_id").references(() => messages.id, {
-    onDelete: "set null",
+export const records = pgTable(
+  "records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    proposalKey: text("proposal_key"),
+    type: recordType("type").notNull().default("unknown"),
+    title: text("title"),
+    body: text("body"),
+    sourceMessageId: uuid("source_message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    proposalKeyUq: unique("records_proposal_key_uq").on(table.proposalKey),
   }),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+);
 
-export const entities = pgTable("entities", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  type: text("type").notNull(),
-  name: text("name").notNull(),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const entities = pgTable(
+  "entities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    proposalKey: text("proposal_key"),
+    type: text("type").notNull(),
+    name: text("name").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    proposalKeyUq: unique("entities_proposal_key_uq").on(table.proposalKey),
+  }),
+);
 
-export const graphRelations = pgTable("relations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  fromKind: text("from_kind").notNull(),
-  fromId: uuid("from_id").notNull(),
-  toKind: text("to_kind").notNull(),
-  toId: uuid("to_id").notNull(),
-  type: text("type").notNull(),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const graphRelations = pgTable(
+  "relations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    proposalKey: text("proposal_key"),
+    fromKind: text("from_kind").notNull(),
+    fromId: uuid("from_id").notNull(),
+    toKind: text("to_kind").notNull(),
+    toId: uuid("to_id").notNull(),
+    type: text("type").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    proposalKeyUq: unique("relations_proposal_key_uq").on(table.proposalKey),
+  }),
+);
 
 export const processingJobs = pgTable(
   "processing_jobs",
@@ -347,3 +370,9 @@ export type DerivedArtifact = typeof derivedArtifacts.$inferSelect;
 export type NewDerivedArtifact = typeof derivedArtifacts.$inferInsert;
 export type Embedding = typeof embeddings.$inferSelect;
 export type NewEmbedding = typeof embeddings.$inferInsert;
+export type RecordRow = typeof records.$inferSelect;
+export type NewRecordRow = typeof records.$inferInsert;
+export type Entity = typeof entities.$inferSelect;
+export type NewEntity = typeof entities.$inferInsert;
+export type GraphRelation = typeof graphRelations.$inferSelect;
+export type NewGraphRelation = typeof graphRelations.$inferInsert;

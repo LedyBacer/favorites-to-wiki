@@ -244,6 +244,12 @@ EMBEDDING_MODEL=qwen3-embedding:0.6b
 EMBEDDING_DIMENSIONS=
 EMBEDDING_SERVICE_TIMEOUT_MS=300000
 EMBEDDING_MAX_INPUT_CHARS=12000
+LLM_SERVICE_URL=http://192.168.1.156:11434
+LLM_MODEL=qwen3.5:4b
+LLM_VISION_MODEL=qwen3.5:4b
+LLM_SERVICE_TIMEOUT_MS=600000
+LLM_MAX_INPUT_CHARS=20000
+LLM_IMAGE_MAX_ATTACHMENT_BYTES=26214400
 ```
 
 Smoke-test Ollama from the Docker host:
@@ -276,12 +282,67 @@ The same small batch path is available from Telegram through `/embed`; semantic 
 
 Embedding workers write to `embeddings` plus `derived_artifacts.embedding_reference`. They must not mutate `messages`, `message_versions`, or `attachments`.
 
-## Phase 5 Preparation
+## Local LLM Classification And Image Analysis
 
-Local LLM classification should reuse the same operational pattern as OCR/ASR and embeddings:
+Local LLM classification and image analysis reuse the same operational pattern as OCR/ASR and embeddings:
 
-- configure a local provider URL in `.env`;
+- configure `LLM_SERVICE_URL` in `.env`;
 - run processing through `processing_jobs`;
 - validate model output with Zod or JSON Schema inside the app;
 - write proposed records/entities/relations as reviewable derived data;
 - never allow the model service to connect directly to PostgreSQL or mutate source Telegram tables.
+
+Smoke-test Ollama chat/vision from the Docker host:
+
+```bash
+curl http://192.168.1.156:11434/api/tags
+curl http://192.168.1.156:11434/api/chat -d '{
+  "model": "qwen3.5:4b",
+  "messages": [{"role":"user","content":"Return {\"ok\":true} as JSON"}],
+  "stream": false,
+  "format": "json"
+}'
+```
+
+Run one image-analysis batch:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20
+```
+
+Run a continuous image-analysis worker loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20 --loop
+```
+
+Run one LLM classification batch:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/classify.js 20
+```
+
+Run a continuous classification worker loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/classify.js 20 --loop
+```
+
+Reopen existing jobs after prompt/model changes:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20 --reprocess
+docker compose run --rm --entrypoint node app dist/app/classify.js 20 --reclassify
+```
+
+The same small batch paths are available from Telegram through `/analyze_images` and `/classify`. Recent proposed records are visible through `/proposals`.
+
+After image analysis writes `image_description` artifacts, rerun embeddings with `--reindex` if semantic search should include visual content:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --reindex
+```
+
+LLM outputs are proposals. Treat rows with `metadata.status = 'proposed'` in `records`, `entities`, and `relations` as reviewable generated data, not confirmed source facts.

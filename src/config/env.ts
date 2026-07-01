@@ -62,6 +62,22 @@ const envSchema = z.object({
     .max(30 * 60 * 1000)
     .default(300000),
   EMBEDDING_MAX_INPUT_CHARS: z.coerce.number().int().min(100).max(200000).default(12000),
+  LLM_SERVICE_URL: emptyStringToUndefined(z.string().url().optional()),
+  LLM_SERVICE_API_KEY: emptyStringToUndefined(z.string().optional()),
+  LLM_MODEL: z.string().min(1).default("qwen3.5:4b"),
+  LLM_VISION_MODEL: z.string().min(1).default("qwen3.5:4b"),
+  LLM_SERVICE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60 * 60 * 1000)
+    .default(600000),
+  LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(500).max(200000).default(20000),
+  LLM_IMAGE_MAX_ATTACHMENT_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(25 * 1024 * 1024),
   LOG_LEVEL: z.string().default("info"),
 });
 

@@ -23,6 +23,8 @@
     "preprocess:run": "tsx src/app/preprocess.ts",
     "media:process": "tsx src/app/media-process.ts",
     "embeddings:run": "tsx src/app/embeddings.ts",
+    "classify:run": "tsx src/app/classify.ts",
+    "images:analyze": "tsx src/app/image-analysis.ts",
     "import:telegram": "tsx src/import/telegram-export.ts"
   },
   "dependencies": {

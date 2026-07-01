@@ -13,7 +13,7 @@ The first milestone is a reliable Telegram-first personal inbox. The system stor
 - Local filesystem storage behind a Docker volume for Telegram files. The database stores relative paths, SHA-256 hashes, Telegram file IDs, and download status.
 - Zod validates environment configuration at startup.
 - Vitest covers critical deterministic logic.
-- Ollama-compatible HTTP embedding APIs provide optional local semantic search.
+- Ollama-compatible HTTP APIs provide optional local semantic search, structured classification, and image analysis.
 
 ## Data Boundaries
 
@@ -52,6 +52,7 @@ Phase 4 adds optional Ollama-compatible embeddings for semantic search. The app 
 - `normalized_text` artifacts when available;
 - attachment file names;
 - selected attachment artifacts such as `ocr_text` and `transcript`.
+- selected attachment artifacts such as `ocr_text`, `transcript`, and `image_description`.
 
 The embedding vector is stored in the `embeddings` table as rebuildable derived data keyed by `(source_kind, source_id, provider, model)`. A matching `derived_artifacts.embedding_reference` row stores the provider, model, dimensions, and source content hash for auditability. Source Telegram rows remain unchanged.
 
@@ -70,6 +71,8 @@ Entry points:
 
 Embedding reindexing is idempotent. Normal runs enqueue missing message jobs. Explicit `--reindex` or `/embed 20 reindex` reopens existing embedding jobs; unchanged source hashes are skipped, and changed inputs overwrite rebuildable embedding rows.
 
+When Phase 5.1 image descriptions are added or changed, run embedding reindexing so semantic search can include visual descriptions.
+
 ## Future Expansion
 
 The schema already includes placeholders for:
@@ -80,7 +83,50 @@ The schema already includes placeholders for:
 - relations between source and derived objects;
 - processing jobs for OCR, ASR, embeddings, previews, and LLM classification.
 
-Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes. Phase 5 should reuse the provider-boundary pattern from OCR/ASR and embeddings, but classification results must be proposals in derived/structured tables rather than direct mutations of source Telegram rows.
+Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes. Classification results are proposals in derived/structured tables rather than direct mutations of source Telegram rows.
+
+## Phase 5 Local LLM Classification
+
+Phase 5 uses an Ollama-compatible `/api/chat` provider boundary. The model receives archive context built by the app from message text, deterministic artifacts, OCR, transcripts, attachment metadata, and image descriptions. The model returns structured JSON, constrained by a JSON Schema request and validated again with Zod inside the app.
+
+Job type:
+
+- `llm_classification` for `messages`.
+
+Outputs:
+
+- `derived_artifacts.llm_classification` stores the validated model proposal and source content hash for audit/rebuild;
+- proposed `records`, `entities`, and `relations` are upserted with stable `proposal_key` values;
+- proposal rows carry `metadata.status = "proposed"`, provider/model metadata, confidence, and source content hash.
+
+The LLM service has no database credentials and never writes to PostgreSQL directly. Reclassification is explicit through `--reclassify` or `/classify 10 reclassify`.
+
+Entry points:
+
+- Telegram `/classify`;
+- Telegram `/proposals`;
+- `npm run classify:run`;
+- Docker `node dist/app/classify.js`.
+
+## Phase 5.1 Image Data Layer
+
+Phase 5.1 adds a derived layer for downloaded images using a multimodal Ollama-compatible vision model such as `qwen3.5:4b`. The app reads local image bytes from `STORAGE_ROOT`, sends base64 images to `/api/chat`, validates structured JSON, and writes an `image_description` artifact.
+
+Job type:
+
+- `image_analysis` for downloaded image `attachments`.
+
+Artifact type:
+
+- `image_description`.
+
+The artifact contains a text description, visible text, language hint, objects, tags, safety notes, confidence, provider/model metadata, and source attachment metadata. It is rebuildable and does not mutate `messages`, `message_versions`, or `attachments`. Message embeddings consume `image_description`, so `/embed --reindex` should be run after image analysis when semantic search should include visual content.
+
+Entry points:
+
+- Telegram `/analyze_images`;
+- `npm run images:analyze`;
+- Docker `node dist/app/image-analysis.js`.
 
 ## Phase 2 Preparation
 

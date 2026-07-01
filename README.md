@@ -28,6 +28,9 @@ Edit `.env`:
 - `ASR_SERVICE_URL` - optional ASR HTTP service URL.
 - `EMBEDDING_SERVICE_URL` - optional Ollama-compatible embedding API base URL.
 - `EMBEDDING_MODEL` - local embedding model name.
+- `LLM_SERVICE_URL` - optional Ollama-compatible chat/vision API base URL.
+- `LLM_MODEL` - local structured classification model name.
+- `LLM_VISION_MODEL` - local vision model name for image descriptions.
 
 Start PostgreSQL:
 
@@ -72,7 +75,7 @@ OCR and ASR models are loaded lazily on the first processing request and unloade
 
 ## Connecting A Local Neural Network
 
-The app can connect to a local or LAN-hosted Ollama server for Phase 4 embeddings. This is optional: without `EMBEDDING_SERVICE_URL`, normal archiving, full-text search, OCR, and ASR still work.
+The app can connect to a local or LAN-hosted Ollama server for embeddings, structured classification, and image analysis. This is optional: without these URLs, normal archiving, full-text search, OCR, and ASR still work.
 
 Example `.env` for Ollama:
 
@@ -82,6 +85,12 @@ EMBEDDING_MODEL=qwen3-embedding:0.6b
 EMBEDDING_DIMENSIONS=
 EMBEDDING_SERVICE_TIMEOUT_MS=300000
 EMBEDDING_MAX_INPUT_CHARS=12000
+LLM_SERVICE_URL=http://192.168.1.156:11434
+LLM_MODEL=qwen3.5:4b
+LLM_VISION_MODEL=qwen3.5:4b
+LLM_SERVICE_TIMEOUT_MS=600000
+LLM_MAX_INPUT_CHARS=20000
+LLM_IMAGE_MAX_ATTACHMENT_BYTES=26214400
 ```
 
 Check that the model is available:
@@ -120,6 +129,22 @@ Semantic search is available through Telegram:
 /semantic 10 запрос
 ```
 
+Run image analysis for downloaded images:
+
+```bash
+npm run images:analyze -- 20
+docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20
+```
+
+Run local LLM classification:
+
+```bash
+npm run classify:run -- 20
+docker compose run --rm --entrypoint node app dist/app/classify.js 20
+```
+
+Classification output is validated by the app and stored as proposed `records`, `entities`, and `relations` with `metadata.status = "proposed"` plus a rebuildable `derived_artifacts.llm_classification` audit row. The model service never writes to PostgreSQL directly.
+
 ## Telegram Bot Setup
 
 1. Open Telegram and message `@BotFather`.
@@ -141,9 +166,13 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 - `/process_media` - enqueue and run a small OCR/ASR batch.
 - `/process_media 10 ocr` - OCR-only batch.
 - `/process_media 10 asr` - ASR-only batch.
+- `/analyze_images` - enqueue and run a small LLM image-analysis batch.
 - `/embed` - enqueue and run a small embedding indexing batch.
 - `/embed 20 reindex` - re-open existing embedding jobs and rebuild changed vectors.
 - `/semantic query` - semantic search over indexed embeddings.
+- `/classify` - enqueue and run a small LLM classification batch.
+- `/classify 10 reclassify` - re-open existing classification jobs.
+- `/proposals` - show recent proposed records.
 
 ## Development Commands
 
@@ -157,6 +186,8 @@ npm run attachments:retry
 npm run preprocess:run
 npm run media:process
 npm run embeddings:run
+npm run images:analyze
+npm run classify:run
 ```
 
 In Docker Compose production, run the compiled retry entry point inside the app image:
@@ -217,6 +248,30 @@ Run it as a loop:
 
 ```bash
 docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --loop
+```
+
+Run image analysis once:
+
+```bash
+npm run images:analyze -- 20
+```
+
+Run the compiled image-analysis worker in Docker Compose:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20
+```
+
+Run local LLM classification once:
+
+```bash
+npm run classify:run -- 20
+```
+
+Run the compiled classification worker in Docker Compose:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/classify.js 20
 ```
 
 `npm run test:integration` requires a PostgreSQL database URL:
@@ -281,12 +336,14 @@ Core modules:
 - `src/domain/preprocessing` - deterministic normalized text, metadata, safe preview, and file metadata artifacts.
 - `src/domain/media-processing` - optional OCR/ASR job enqueueing, external processor clients, and derived artifacts.
 - `src/domain/embeddings` - Ollama-compatible embedding client, rebuildable embedding indexing, and semantic search.
+- `src/domain/llm` - Ollama-compatible chat/vision client, image descriptions, and validated proposed records/entities/relations.
 
 ## Current Limitations
 
 - Long polling only; no webhook server yet.
-- No LLM classification, reminders, web UI, or external AI calls.
+- No reminders, web UI, or external AI calls.
 - OCR/ASR require optional local or remote HTTP processor services.
 - Semantic search requires an optional local or remote Ollama-compatible embedding service.
+- LLM classification and image analysis require an optional local or remote Ollama-compatible chat service.
 - Integration tests require `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json`; test files are not emitted to `dist`.

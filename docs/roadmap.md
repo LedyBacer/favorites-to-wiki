@@ -28,6 +28,7 @@ Latest committed work on `main`:
 - `6946f4e Fix optional embedding dimensions parsing`
 - `f08bbf9 Fix embedding job payload typing`
 - `7914694 Fix embedding vector SQL binding`
+- Phase 5 work in this change adds local LLM classification plus a Phase 5.1 image-description layer.
 
 ## Review Against The Original Plan
 
@@ -82,15 +83,13 @@ Latest committed work on `main`:
 
 ### Not Started By Design
 
-These were explicitly excluded from the first phase and should remain out until the archive layer is stable:
+These were explicitly excluded from the first phase and remain outside the current local-first scope:
 
 - external AI providers;
-- local LLM classification;
 - web UI;
 - n8n;
 - reminders;
-- Redis, Kafka, Kubernetes, or microservice split;
-- automatic classification and structured record generation.
+- Redis, Kafka, Kubernetes, or microservice split.
 
 ## Key Technical Risks
 
@@ -339,7 +338,7 @@ Ready foundations:
 - source messages, versions, attachments, curated metadata, and future derived entities are separated;
 - `processing_jobs` exists as a PostgreSQL-backed queue table;
 - `processing_jobs` has worker ownership, lock timestamps, retry limits, and completion timestamps for atomic future claims;
-- `derived_artifacts` exists for normalized text, extracted metadata, file metadata, link previews, OCR text, transcripts, and embedding references;
+- `derived_artifacts` exists for normalized text, extracted metadata, file metadata, link previews, OCR text, transcripts, embedding references, LLM classification outputs, and image descriptions;
 - `records`, `entities`, `relations`, and `bundles` exist as extension points;
 - attachment files have stable local paths and SHA-256 values after download/import;
 - no external AI provider is part of the runtime path.
@@ -504,7 +503,7 @@ Exit criteria:
 
 ### Readiness For Phase 5
 
-Phase 5 is ready to start.
+Phase 5 has been implemented in code and is ready for production deployment validation.
 
 Prepared foundations:
 
@@ -513,6 +512,7 @@ Prepared foundations:
 - generated model outputs remain under app validation and persistence control;
 - embeddings are rebuildable and separate from source Telegram rows;
 - `processing_jobs` remains the queue/claim/retry boundary for model-backed workers.
+- `records`, `entities`, and `relations` now have nullable `proposal_key` values for idempotent generated proposals.
 
 Phase 5 guardrails:
 
@@ -523,11 +523,50 @@ Phase 5 guardrails:
 
 ### Phase 5 - Local LLM Classification
 
-- Add replaceable AI provider boundary.
-- Start with local Ollama.
-- Validate structured JSON output with Zod/JSON Schema.
-- Generate proposed records/entities/relations without direct LLM database writes.
-- Add confirmation or review workflows through Telegram.
+Status: implemented in code; deployment validation pending in this change.
+
+- Completed: add replaceable Ollama-compatible `/api/chat` provider boundary.
+- Completed: start with local Ollama and configurable `LLM_SERVICE_URL`, `LLM_MODEL`, timeout, and input-size bounds.
+- Completed: validate structured JSON output with JSON Schema request constraints plus Zod validation inside the app.
+- Completed: generate proposed `records`, `entities`, and `relations` without direct LLM database writes.
+- Completed: store audit/rebuild output in `derived_artifacts.llm_classification`.
+- Completed: add stable `proposal_key` fields for idempotent proposal upserts.
+- Completed: mark generated structured rows with `metadata.status = 'proposed'`.
+- Completed: add review visibility through Telegram `/proposals`.
+- Completed: add entry points:
+  - Telegram `/classify`;
+  - Telegram `/proposals`;
+  - `npm run classify:run`;
+  - Docker `node dist/app/classify.js`.
+
+Exit criteria:
+
+- pending: migrations apply on Proxmox;
+- pending: Docker app healthcheck passes after deployment;
+- pending: PostgreSQL integration tests pass against disposable `favorites_integration` on Proxmox;
+- pending: production classification batch writes proposed records/entities/relations with no source row mutation;
+- pending: repeated classification run is idempotent unless `reclassify` is requested.
+
+### Phase 5.1 - Image Data Layer
+
+Status: implemented in code; deployment validation pending in this change.
+
+- Completed: add image-analysis jobs for downloaded image attachments through `image_analysis`.
+- Completed: use a multimodal Ollama-compatible vision model such as `qwen3.5:4b`.
+- Completed: validate structured image JSON with JSON Schema request constraints plus Zod validation inside the app.
+- Completed: store outputs as rebuildable `derived_artifacts.image_description` rows.
+- Completed: include `image_description` in message embedding source text so semantic search can cover image contents after embedding reindexing.
+- Completed: keep source Telegram rows unchanged.
+- Completed: add entry points:
+  - Telegram `/analyze_images`;
+  - `npm run images:analyze`;
+  - Docker `node dist/app/image-analysis.js`.
+
+Exit criteria:
+
+- pending: production image-analysis batch writes `image_description` artifacts with no source row mutation;
+- pending: embedding reindex after image analysis includes the new visual descriptions;
+- pending: repeated image-analysis run is idempotent unless `reprocess` is requested.
 
 ## Definition Of Done For The First Product Slice
 

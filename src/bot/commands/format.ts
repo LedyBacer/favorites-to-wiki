@@ -1,5 +1,6 @@
 import type { Attachment, Message } from "../../db/schema.js";
 import type { SemanticSearchResult } from "../../domain/embeddings/embedding-service.js";
+import type { LlmClassificationService } from "../../domain/llm/llm-classification-service.js";
 import type { SearchResult } from "../../search/search-service.js";
 
 export const TELEGRAM_MESSAGE_SAFE_LIMIT = 3900;
@@ -143,6 +144,18 @@ export function formatSemanticSearchResult(result: SemanticSearchResult, query: 
     searchSnippet(result.currentText, query),
     result.attachmentNames ? `Файлы: ${result.attachmentNames}` : "",
     link ?? "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatProposal(
+  proposal: Awaited<ReturnType<LlmClassificationService["recentProposals"]>>[number],
+) {
+  return [
+    `${formatTelegramDate(proposal.created_at)} · ${proposal.type}`,
+    proposal.title ?? "",
+    shortText(proposal.body, 260),
   ]
     .filter(Boolean)
     .join("\n");

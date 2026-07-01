@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { Database } from "../../db/client.js";
 
-export interface EmbeddingSourceText {
+export interface ClassificationSource {
   messageId: string;
   text: string;
   contentHash: string;
@@ -11,20 +11,23 @@ export interface EmbeddingSourceText {
 
 interface SourceRow extends Record<string, unknown> {
   message_id: string;
+  telegram_date: Date | string;
+  message_type: string;
   message_text: string | null;
   normalized_text: unknown;
-  attachment_texts: unknown;
-  attachment_names: string | null;
+  attachment_context: unknown;
 }
 
-export async function buildMessageEmbeddingSourceText(
+export async function buildClassificationSource(
   db: Database,
   messageId: string,
   maxChars: number,
-): Promise<EmbeddingSourceText | undefined> {
+): Promise<ClassificationSource | undefined> {
   const result = await db.execute<SourceRow>(sql`
     select
       m.id as message_id,
+      m.telegram_date,
+      m.message_type,
       m.current_text as message_text,
       (
         select da.content
@@ -39,24 +42,20 @@ export async function buildMessageEmbeddingSourceText(
         select coalesce(jsonb_agg(
           jsonb_build_object(
             'attachmentId', a.id,
+            'fileName', a.original_file_name,
+            'mimeType', a.mime_type,
             'artifactType', da.artifact_type,
             'content', da.content
           )
           order by a.created_at asc, da.artifact_type asc
         ), '[]'::jsonb)
         from attachments a
-        join derived_artifacts da
+        left join derived_artifacts da
           on da.source_kind = 'attachment'
           and da.source_id = a.id
           and da.artifact_type in ('ocr_text', 'transcript', 'image_description')
         where a.message_id = m.id
-      ) as attachment_texts,
-      (
-        select string_agg(a.original_file_name, E'\n' order by a.created_at asc)
-        from attachments a
-        where a.message_id = m.id
-          and a.original_file_name is not null
-      ) as attachment_names
+      ) as attachment_context
     from messages m
     where m.id = ${messageId}
     limit 1
@@ -65,21 +64,35 @@ export async function buildMessageEmbeddingSourceText(
   const row = result.rows[0];
   if (!row) return undefined;
 
-  const parts: EmbeddingSourceText["parts"] = [];
   const chunks: string[] = [];
+  const parts: ClassificationSource["parts"] = [];
+  addPart(
+    chunks,
+    parts,
+    "message_meta",
+    row.message_id,
+    [`date: ${String(row.telegram_date)}`, `type: ${row.message_type}`].join("\n"),
+  );
 
   const normalized = textFromContent(row.normalized_text);
   addPart(chunks, parts, "normalized_text", row.message_id, normalized);
   if (!normalized) addPart(chunks, parts, "message_text", row.message_id, row.message_text);
-  addPart(chunks, parts, "attachment_names", row.message_id, row.attachment_names);
 
-  for (const attachmentText of attachmentTexts(row.attachment_texts)) {
+  for (const attachment of attachmentContext(row.attachment_context)) {
     addPart(
       chunks,
       parts,
-      attachmentText.artifactType,
-      attachmentText.attachmentId,
-      textFromContent(attachmentText.content),
+      "attachment",
+      attachment.attachmentId,
+      [
+        attachment.fileName ? `file: ${attachment.fileName}` : undefined,
+        attachment.mimeType ? `mime: ${attachment.mimeType}` : undefined,
+        attachment.artifactType
+          ? `${attachment.artifactType}: ${textFromContent(attachment.content)}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
   }
 
@@ -87,18 +100,14 @@ export async function buildMessageEmbeddingSourceText(
   return {
     messageId: row.message_id,
     text,
-    contentHash: hashEmbeddingSourceText(text),
+    contentHash: `sha256:${createHash("sha256").update(text).digest("hex")}`,
     parts,
   };
 }
 
-export function hashEmbeddingSourceText(text: string) {
-  return `sha256:${createHash("sha256").update(text).digest("hex")}`;
-}
-
 function addPart(
   chunks: string[],
-  parts: EmbeddingSourceText["parts"],
+  parts: ClassificationSource["parts"],
   kind: string,
   sourceId: string,
   value: string | null | undefined,
@@ -111,29 +120,26 @@ function addPart(
 
 function textFromContent(content: unknown) {
   if (typeof content !== "object" || content === null) return undefined;
-  const value = (content as { text?: unknown }).text;
-  return typeof value === "string" ? value : undefined;
+  const candidate = content as Record<string, unknown>;
+  const text = candidate.text ?? candidate.description;
+  return typeof text === "string" ? text : undefined;
 }
 
-function attachmentTexts(value: unknown) {
+function attachmentContext(value: unknown) {
   if (!Array.isArray(value)) return [];
-  return value.filter(isAttachmentText);
+  return value.filter(isAttachmentContext);
 }
 
-function isAttachmentText(value: unknown): value is {
+function isAttachmentContext(value: unknown): value is {
   attachmentId: string;
-  artifactType: string;
+  fileName: string | null;
+  mimeType: string | null;
+  artifactType: string | null;
   content: unknown;
 } {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.attachmentId === "string" &&
-    typeof candidate.artifactType === "string" &&
-    (candidate.artifactType === "ocr_text" ||
-      candidate.artifactType === "transcript" ||
-      candidate.artifactType === "image_description")
-  );
+  return typeof candidate.attachmentId === "string";
 }
 
 function truncatePreservingWords(text: string, maxChars: number) {

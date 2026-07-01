@@ -89,7 +89,7 @@ export class EmbeddingService {
             join derived_artifacts da
               on da.source_kind = 'attachment'
               and da.source_id = a.id
-              and da.artifact_type in ('ocr_text', 'transcript')
+              and da.artifact_type in ('ocr_text', 'transcript', 'image_description')
               and coalesce(da.content->>'text', '') <> ''
             where a.message_id = messages.id
           )
@@ -341,7 +341,7 @@ export class EmbeddingService {
             join derived_artifacts da
               on da.source_kind = 'attachment'
               and da.source_id = a.id
-              and da.artifact_type in ('ocr_text', 'transcript')
+              and da.artifact_type in ('ocr_text', 'transcript', 'image_description')
               and coalesce(da.content->>'text', '') <> ''
             where a.message_id = messages.id
           )
