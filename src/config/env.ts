@@ -54,7 +54,7 @@ const envSchema = z.object({
   EMBEDDING_SERVICE_URL: emptyStringToUndefined(z.string().url().optional()),
   EMBEDDING_SERVICE_API_KEY: emptyStringToUndefined(z.string().optional()),
   EMBEDDING_MODEL: z.string().min(1).default("qwen3-embedding:0.6b"),
-  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().optional(),
+  EMBEDDING_DIMENSIONS: emptyStringToUndefined(z.coerce.number().int().positive().optional()),
   EMBEDDING_SERVICE_TIMEOUT_MS: z.coerce
     .number()
     .int()
