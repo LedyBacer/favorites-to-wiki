@@ -66,8 +66,7 @@ export class LocalStorage {
       });
       await rename(tempPath, finalPath);
     } catch (error) {
-      writer.destroy();
-      await rm(tempPath, { force: true });
+      await destroyWriterAndRemoveTemp(writer, tempPath);
       throw error;
     }
 
@@ -122,8 +121,7 @@ export class LocalStorage {
       await rename(tempPath, finalPath);
     } catch (error) {
       reader.destroy();
-      writer.destroy();
-      await rm(tempPath, { force: true });
+      await destroyWriterAndRemoveTemp(writer, tempPath);
       throw error;
     }
 
@@ -160,4 +158,16 @@ export class LocalStorage {
       throw error;
     }
   }
+}
+
+async function destroyWriterAndRemoveTemp(
+  writer: ReturnType<typeof createWriteStream>,
+  tempPath: string,
+) {
+  const waitForClose = writer.closed
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => writer.once("close", resolve));
+  writer.destroy();
+  await waitForClose;
+  await rm(tempPath, { force: true });
 }

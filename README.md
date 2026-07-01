@@ -345,7 +345,9 @@ Core modules:
 - `src/db` - Drizzle schema, client, migrations.
 - `src/search` - PostgreSQL search service.
 - `src/import` - Telegram Desktop export importer.
-- `src/domain/processing` - PostgreSQL processing job claim/lock primitives for future workers.
+- `src/domain/processing` - PostgreSQL processing job claim/lock and changed-input primitives.
+- `src/domain/bundles` - deterministic auto-bundle grouping rules.
+- `src/domain/worker` - automatic pipeline orchestration.
 - `src/domain/preprocessing` - deterministic normalized text, metadata, safe preview, and file metadata artifacts.
 - `src/domain/media-processing` - optional OCR/ASR job enqueueing, external processor clients, and derived artifacts.
 - `src/domain/embeddings` - Ollama-compatible embedding client, rebuildable embedding indexing, and semantic search.

@@ -54,14 +54,14 @@ Major committed work on `main`:
 - Added Docker Compose with PostgreSQL, app container, persistent PostgreSQL volume, and Telegram file storage volume.
 - Added Zod-based environment validation.
 - Added allowlist access control through `TELEGRAM_ALLOWED_USER_IDS`.
-- Added short save acknowledgements controlled by `BOT_ACKNOWLEDGEMENTS`.
+- Added short save acknowledgements controlled by `BOT_ACKNOWLEDGEMENTS`; Phase 6 changed the default to quiet saves.
 - Added message ingestion for text, captions, photos, documents, voice messages, videos, forwards, replies, and edited messages.
 - Added current message state in `messages`.
 - Added immutable message history in `message_versions`.
 - Added duplicate version prevention through a SHA-256 content hash.
 - Added attachment records with Telegram file IDs, unique IDs, original file names, MIME type, size, local path, SHA-256, and download status.
 - Added local file download with safe path construction, `.part` files, SHA-256 streaming, and max-size enforcement.
-- Added `/start`, `/help`, `/recent`, `/status`, and `/search`.
+- Added `/start`, `/help`, `/recent`, `/status`, `/search`, `/find`, and `/settings`.
 - Added PostgreSQL full-text search plus `ILIKE` fallback over message text/captions and attachment names.
 - Added schema tables for `bundles`, `records`, `entities`, `relations`, and `processing_jobs`; `records`, `entities`, `relations`, and `processing_jobs` are now active Phase 5/worker tables.
 - Added Telegram Desktop importer: `npm run import:telegram -- /path/to/result.json`.
@@ -91,11 +91,11 @@ Major committed work on `main`:
 
 - **Idempotent persistence:** implemented for normal repeated messages and identical edited versions. Source-message database writes are transactional, Telegram message inserts use conflict-safe insert behavior, and version writes are serialized per message with a PostgreSQL transaction advisory lock. Concurrent integration tests pass.
 - **Reply linkage:** Telegram reply message ID is stored and resolved to the internal UUID when the replied-to message already exists. Backfill for unresolved older replies is not implemented.
-- **Forward metadata:** the available Telegram `forward_origin` summary is stored, but no grouping or bundle inference is implemented.
+- **Forward metadata:** the available Telegram `forward_origin` summary is stored and Phase 6 uses it for conservative sequential-forward auto-bundles.
 - **Attachment retries:** failed downloads now track attempts and next retry time, and can be retried through Telegram or CLI. A background scheduler is intentionally deferred because manual retry is enough for the current MVP.
 - **Search result quality:** search works, but ranking is still basic and result snippets are simple truncations rather than highlighted fragments.
 - **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
-- **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are deferred to the Telegram UX phase.
+- **Testing:** deterministic unit tests, bundle grouping tests, and repository-level PostgreSQL integration tests exist. Bot handler tests remain a possible future hardening task.
 - **Deployment:** Docker build, migrations, app startup, healthchecks, and real Telegram smoke tests are validated on the Proxmox Docker host.
 
 ### Not Started By Design

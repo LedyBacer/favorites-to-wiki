@@ -68,9 +68,7 @@ Entry points:
 - Docker `node dist/app/embeddings.js`;
 - Telegram `/semantic` for semantic search.
 
-Embedding reindexing is idempotent. Normal runs enqueue missing message jobs. Explicit `--reindex` or `/embed 20 reindex` reopens existing embedding jobs; unchanged source hashes are skipped, and changed inputs overwrite rebuildable embedding rows.
-
-When Phase 5.1 image descriptions are added or changed, run embedding reindexing so semantic search can include visual descriptions.
+Embedding reindexing is idempotent. Normal runs enqueue missing or changed message jobs by comparing the current embedding source content hash with `processing_jobs.input_hash`. Explicit `--reindex` or `/embed 20 reindex` is still available for operations, but the Phase 6 worker automatically refreshes changed vectors after OCR, transcripts, or image descriptions change.
 
 ## Current Extension Points
 
@@ -105,7 +103,7 @@ When a source row, derived media artifact, model, or prompt generation changes, 
 
 Provider-backed stages are skipped when their service URL is not configured. Skipping does not fail the pipeline.
 
-Bundles are rebuildable derived groupings over source messages. The auto-bundle service deletes and recreates only bundles where `metadata.createdBy = "auto_bundle_service"` and never mutates source message rows. Conservative deterministic grouping rules are applied in this order:
+Bundles are rebuildable derived groupings over source messages. The auto-bundle service owns only bundles where `metadata.createdBy = "auto_bundle_service"`, preserves stable bundle IDs by `metadata.groupKey`, rebuilds membership rows, and never mutates source message rows. Conservative deterministic grouping rules are applied in this order:
 
 - Telegram media groups with the same chat and `mediaGroupId`;
 - reply-linked messages when the replied-to source message is already known;

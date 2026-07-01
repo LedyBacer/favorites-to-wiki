@@ -7,7 +7,7 @@ const FORWARD_WINDOW_MS = 10 * 60 * 1000;
 const TEXT_ATTACHMENT_WINDOW_MS = 3 * 60 * 1000;
 const MAX_OWNER_BURST_SIZE = 10;
 
-interface BundleCandidateRow extends Record<string, unknown> {
+export interface BundleCandidateRow extends Record<string, unknown> {
   id: string;
   telegram_chat_id: number;
   telegram_message_id: number;
@@ -29,12 +29,19 @@ export interface BundleSummary {
   messagesGrouped: number;
 }
 
+export interface AutoBundleGroup {
+  key: string;
+  rule: string;
+  title: string;
+  messageIds: string[];
+}
+
 export class BundleService {
   constructor(private readonly db: Database) {}
 
   async rebuildAutoBundles(): Promise<BundleSummary> {
     const rows = await this.loadRows();
-    const groups = this.buildGroups(rows);
+    const groups = buildAutoBundleGroups(rows);
 
     await this.db.execute(sql`
       delete from bundle_messages
@@ -157,47 +164,48 @@ export class BundleService {
     return result.rows;
   }
 
-  private buildGroups(rows: BundleCandidateRow[]) {
-    const groups: Array<{ key: string; rule: string; title: string; messageIds: string[] }> = [];
-    const assigned = new Set<string>();
+}
 
-    for (const groupRows of groupByMediaGroup(rows)) {
-      this.addGroup(groups, assigned, "media_group", groupRows, "Медиа-группа Telegram");
-    }
-    for (const groupRows of groupByReply(rows, assigned)) {
-      this.addGroup(groups, assigned, "reply_thread", groupRows, "Связанные reply-сообщения");
-    }
-    for (const groupRows of groupSequentialForwards(rows, assigned)) {
-      this.addGroup(groups, assigned, "sequential_forward", groupRows, "Серия пересланных сообщений");
-    }
-    for (const groupRows of groupTextThenAttachment(rows, assigned)) {
-      this.addGroup(groups, assigned, "text_then_attachment", groupRows, "Текст и вложение");
-    }
-    for (const groupRows of groupOwnerBursts(rows, assigned)) {
-      this.addGroup(groups, assigned, "owner_time_window", groupRows, "Серия сообщений владельца");
-    }
+export function buildAutoBundleGroups(rows: BundleCandidateRow[]): AutoBundleGroup[] {
+  const groups: AutoBundleGroup[] = [];
+  const assigned = new Set<string>();
 
-    return groups;
+  for (const groupRows of groupByMediaGroup(rows)) {
+    addGroup(groups, assigned, "media_group", groupRows, "Медиа-группа Telegram");
+  }
+  for (const groupRows of groupByReply(rows, assigned)) {
+    addGroup(groups, assigned, "reply_thread", groupRows, "Связанные reply-сообщения");
+  }
+  for (const groupRows of groupSequentialForwards(rows, assigned)) {
+    addGroup(groups, assigned, "sequential_forward", groupRows, "Серия пересланных сообщений");
+  }
+  for (const groupRows of groupTextThenAttachment(rows, assigned)) {
+    addGroup(groups, assigned, "text_then_attachment", groupRows, "Текст и вложение");
+  }
+  for (const groupRows of groupOwnerBursts(rows, assigned)) {
+    addGroup(groups, assigned, "owner_time_window", groupRows, "Серия сообщений владельца");
   }
 
-  private addGroup(
-    groups: Array<{ key: string; rule: string; title: string; messageIds: string[] }>,
-    assigned: Set<string>,
-    rule: string,
-    rows: BundleCandidateRow[],
-    title: string,
-  ) {
-    const freshRows = rows.filter((row) => !assigned.has(row.id));
-    if (freshRows.length < 2) return;
-    const messageIds = freshRows.map((row) => row.id);
-    for (const messageId of messageIds) assigned.add(messageId);
-    groups.push({
-      key: `${rule}:${hash(messageIds.join(":"))}`,
-      rule,
-      title,
-      messageIds,
-    });
-  }
+  return groups;
+}
+
+function addGroup(
+  groups: AutoBundleGroup[],
+  assigned: Set<string>,
+  rule: string,
+  rows: BundleCandidateRow[],
+  title: string,
+) {
+  const freshRows = rows.filter((row) => !assigned.has(row.id));
+  if (freshRows.length < 2) return;
+  const messageIds = freshRows.map((row) => row.id);
+  for (const messageId of messageIds) assigned.add(messageId);
+  groups.push({
+    key: `${rule}:${hash(messageIds.join(":"))}`,
+    rule,
+    title,
+    messageIds,
+  });
 }
 
 function groupByMediaGroup(rows: BundleCandidateRow[]) {
