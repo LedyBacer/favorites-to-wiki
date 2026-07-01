@@ -48,27 +48,7 @@ export class BundleService {
     let messagesGrouped = 0;
     for (const group of groups) {
       if (group.messageIds.length < 2) continue;
-      const result = await this.db.execute<{ id: string }>(sql`
-        insert into bundles (title, metadata, updated_at)
-        values (
-          ${group.title},
-          ${JSON.stringify({
-            createdBy: "auto_bundle_service",
-            groupKey: group.key,
-            rule: group.rule,
-            messageCount: group.messageIds.length,
-          })}::jsonb,
-          now()
-        )
-        on conflict ((metadata->>'groupKey'))
-        where metadata->>'createdBy' = 'auto_bundle_service'
-        do update set
-          title = excluded.title,
-          metadata = excluded.metadata,
-          updated_at = now()
-        returning id
-      `);
-      const bundleId = result.rows[0]!.id;
+      const bundleId = await this.upsertBundle(group);
       for (const [index, messageId] of group.messageIds.entries()) {
         await this.db.execute(sql`
           insert into bundle_messages (bundle_id, message_id, position)
@@ -98,6 +78,45 @@ export class BundleService {
     }
 
     return { bundlesCreated: groups.filter((group) => group.messageIds.length > 1).length, messagesGrouped };
+  }
+
+  private async upsertBundle(group: {
+    key: string;
+    rule: string;
+    title: string;
+    messageIds: string[];
+  }) {
+    const metadata = {
+      createdBy: "auto_bundle_service",
+      groupKey: group.key,
+      rule: group.rule,
+      messageCount: group.messageIds.length,
+    };
+    const existing = await this.db.execute<{ id: string }>(sql`
+      select id
+      from bundles
+      where metadata->>'createdBy' = 'auto_bundle_service'
+        and metadata->>'groupKey' = ${group.key}
+      limit 1
+    `);
+    if (existing.rows[0]) {
+      await this.db.execute(sql`
+        update bundles
+        set
+          title = ${group.title},
+          metadata = ${JSON.stringify(metadata)}::jsonb,
+          updated_at = now()
+        where id = ${existing.rows[0].id}
+      `);
+      return existing.rows[0].id;
+    }
+
+    const inserted = await this.db.execute<{ id: string }>(sql`
+      insert into bundles (title, metadata, updated_at)
+      values (${group.title}, ${JSON.stringify(metadata)}::jsonb, now())
+      returning id
+    `);
+    return inserted.rows[0]!.id;
   }
 
   async stats() {
