@@ -189,6 +189,19 @@ export function mapTelegramDesktopExportToSaveInputs(
   });
 }
 
+export function deriveTelegramDesktopExportIdentity(input: unknown) {
+  const exportData = exportSchema.parse(input);
+  const sourceKey = JSON.stringify({
+    id: exportData.id,
+    name: exportData.name,
+    type: exportData.type,
+  });
+  const hash = createHash("sha256").update(sourceKey).digest("hex");
+  const chatId = -Number.parseInt(hash.slice(0, 12), 16);
+  const userId = Number.parseInt(hash.slice(12, 24), 16);
+  return { telegramChatId: chatId, telegramUserId: userId };
+}
+
 export async function importTelegramDesktopExport(
   input: unknown,
   options: TelegramExportImportOptions & {
@@ -313,19 +326,6 @@ function exportAttachmentId(path: string) {
   return `telegram-export:${createHash("sha256").update(path).digest("hex")}`;
 }
 
-function defaultImportIdentity(exportData: TelegramExport, sourceFilePath: string) {
-  const sourceKey = JSON.stringify({
-    id: exportData.id,
-    name: exportData.name,
-    type: exportData.type,
-    sourceFilePath,
-  });
-  const hash = createHash("sha256").update(sourceKey).digest("hex");
-  const chatId = -Number.parseInt(hash.slice(0, 12), 16);
-  const userId = Number.parseInt(hash.slice(12, 24), 16);
-  return { telegramChatId: chatId, telegramUserId: userId };
-}
-
 function exportMetadata(
   message: ParsedTelegramExportMessage,
   exportData: TelegramExport,
@@ -404,7 +404,7 @@ function loadImportRuntimeOptions(sourceFilePath: string): TelegramExportImportR
 
 async function runImport(input: unknown, options: TelegramExportImportRuntimeOptions) {
   const parsed = exportSchema.parse(input);
-  const identity = defaultImportIdentity(parsed, options.sourceFilePath);
+  const identity = deriveTelegramDesktopExportIdentity(parsed);
   const database = createDatabase(options.databaseUrl);
   const storage = new LocalStorage(options.storageRoot);
 

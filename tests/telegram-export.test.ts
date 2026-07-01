@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveTelegramDesktopExportIdentity,
   mapTelegramDesktopExportToSaveInputs,
   parseTelegramDesktopExportJson,
   summarizeTelegramDesktopExport,
@@ -131,5 +132,22 @@ describe("Telegram Desktop export parser", () => {
         mimeType: "application/pdf",
       },
     ]);
+  });
+
+  it("derives stable import identity from export chat metadata", () => {
+    const exportData = {
+      name: "Saved Messages",
+      type: "saved_messages",
+      id: 42,
+      messages: [],
+    };
+
+    expect(deriveTelegramDesktopExportIdentity(exportData)).toEqual(
+      deriveTelegramDesktopExportIdentity({
+        ...exportData,
+        messages: [{ id: 1, type: "message", text: "different payload" }],
+      }),
+    );
+    expect(deriveTelegramDesktopExportIdentity(exportData).telegramChatId).toBeLessThan(0);
   });
 });
