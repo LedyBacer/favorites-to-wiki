@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type Database } from "../../src/db/client.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -11,6 +11,7 @@ import {
 import { MessageService } from "../../src/domain/messages/message-service.js";
 import type { SaveMessageInput } from "../../src/domain/messages/types.js";
 import { ProcessingJobService } from "../../src/domain/processing/processing-job-service.js";
+import { PreprocessingService } from "../../src/domain/preprocessing/preprocessing-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -223,6 +224,53 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
       limit: 10,
     });
     expect(noImmediateReclaim).toHaveLength(0);
+  });
+
+  it("runs deterministic preprocessing jobs idempotently", async () => {
+    const source = await service.saveTelegramMessage(
+      messageInput({
+        telegramMessageId: 1010,
+        text: "See https://example.com/docs #Phase2 on 2026-07-01",
+        attachmentUniqueId: "phase2-file",
+      }),
+    );
+    await db
+      .update(attachments)
+      .set({
+        downloadStatus: "downloaded",
+        localPath: "ph/phase2-file.pdf",
+        sha256: "abc123",
+        mimeType: "application/pdf",
+        originalFileName: "phase2-file.pdf",
+        sizeBytes: 42,
+      })
+      .where(eq(attachments.messageId, source.messageId));
+
+    const preprocessing = new PreprocessingService(db);
+    const first = await preprocessing.enqueueAndProcess("integration-preprocess", 20);
+    const second = await preprocessing.enqueueAndProcess("integration-preprocess", 20);
+
+    expect(first.jobsCreated).toBe(2);
+    expect(first.jobsCompleted).toBe(2);
+    expect(first.artifactsWritten).toBe(5);
+    expect(second.jobsCreated).toBe(0);
+    expect(second.jobsClaimed).toBe(0);
+
+    const rows = await db.select().from(derivedArtifacts);
+    expect(rows.map((row) => row.artifactType).sort()).toEqual([
+      "extracted_metadata",
+      "file_metadata",
+      "file_preview",
+      "link_preview",
+      "normalized_text",
+    ]);
+    expect(
+      rows.find((row) => row.artifactType === "extracted_metadata")?.content,
+    ).toMatchObject({
+      domains: ["example.com"],
+      hashtags: ["phase2"],
+      dates: [{ raw: "2026-07-01", normalized: "2026-07-01", kind: "iso" }],
+    });
   });
 
   async function countMessagesAndVersions() {

@@ -59,6 +59,7 @@ Latest committed work on `main`:
 - Added an app container healthcheck that verifies PostgreSQL and local storage availability.
 - Added PostgreSQL integration tests for migration idempotency, concurrent duplicate first delivery, concurrent identical edits, and concurrent different edits.
 - Added Phase 2 preparation primitives: `derived_artifacts` for rebuildable outputs and lock-aware `processing_jobs` claim semantics.
+- Added Phase 2 deterministic preprocessing implementation: normalized text, extracted metadata, safe link previews, file metadata, file previews, worker CLI, and Telegram `/preprocess`.
 
 ### Partially Completed
 
@@ -346,13 +347,41 @@ Before starting Phase 2:
 
 ### Phase 2 - Deterministic Preprocessing
 
-- Extract URLs, domains, hashtags, mentions, dates, and file metadata.
-- Generate stable normalized text per message.
-- Add `processing_jobs` worker loop in PostgreSQL.
-- Add preview generation for links and common file types where safe.
+Status: implementation complete, pending deployment verification.
+
+- Completed: extract URLs, domains, hashtags, mentions, dates, and file metadata.
+- Completed: generate stable normalized text per message.
+- Completed: add `processing_jobs` worker loop in PostgreSQL:
+  - idempotent enqueue for messages and attachments;
+  - atomic claim through row locks and `skip locked`;
+  - retry/backoff through existing job fields;
+  - graceful shutdown for the CLI loop.
+- Completed: add preview generation for links and common file types where safe:
+  - link previews are URL-structure summaries only;
+  - no external URL fetches are performed;
+  - file previews are derived from existing attachment metadata.
+- Completed: store deterministic outputs in `derived_artifacts`:
+  - `normalized_text`;
+  - `extracted_metadata`;
+  - `link_preview`;
+  - `file_metadata`;
+  - `file_preview`.
+- Completed: add entry points:
+  - Telegram `/preprocess`;
+  - `npm run preprocess:run`;
+  - Docker `node dist/app/preprocess.js`.
+- Completed: add unit tests for deterministic extraction and integration tests for enqueue/process/artifact idempotency.
+
+Exit criteria:
+
+- deterministic processing can be run repeatedly without duplicate jobs or source row mutation;
+- source Telegram rows remain the immutable archive;
+- derived artifacts are rebuildable;
+- worker pattern is ready for Phase 3 OCR/ASR jobs.
 
 ### Phase 3 - Local OCR/ASR
 
+- Status: ready to start after Phase 2 deployment verification.
 - Add OCR jobs for screenshots/images.
 - Add transcription jobs for voice/video audio.
 - Store outputs as derived artifacts, not as replacements for original messages.

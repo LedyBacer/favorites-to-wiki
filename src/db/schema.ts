@@ -55,6 +55,7 @@ export const derivedArtifactType = pgEnum("derived_artifact_type", [
   "extracted_metadata",
   "file_metadata",
   "link_preview",
+  "file_preview",
   "ocr_text",
   "transcript",
   "embedding_reference",
@@ -218,23 +219,39 @@ export const graphRelations = pgTable("relations", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const processingJobs = pgTable("processing_jobs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  type: text("type").notNull(),
-  subjectKind: text("subject_kind").notNull(),
-  subjectId: uuid("subject_id").notNull(),
-  status: processingJobStatus("status").notNull().default("pending"),
-  attempts: integer("attempts").notNull().default(0),
-  maxAttempts: integer("max_attempts").notNull().default(5),
-  lockedBy: text("locked_by"),
-  lockedAt: timestamp("locked_at", { withTimezone: true }),
-  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
-  lastError: text("last_error"),
-  runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const processingJobs = pgTable(
+  "processing_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    type: text("type").notNull(),
+    subjectKind: text("subject_kind").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    status: processingJobStatus("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    lockedBy: text("locked_by"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    lastError: text("last_error"),
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    jobSubjectUq: unique("processing_jobs_job_subject_uq").on(
+      table.type,
+      table.subjectKind,
+      table.subjectId,
+    ),
+    claimIdx: index("processing_jobs_claim_idx").on(
+      table.status,
+      table.runAfter,
+      table.createdAt,
+    ),
+    lockedIdx: index("processing_jobs_locked_idx").on(table.status, table.lockedAt),
+  }),
+);
 
 export const derivedArtifacts = pgTable(
   "derived_artifacts",

@@ -60,3 +60,22 @@ Future AI providers should be replaceable. Local providers are the default assum
 Deterministic preprocessing outputs are stored as rebuildable derived artifacts, not mixed into the original Telegram source tables. The `derived_artifacts` table is keyed by `(source_kind, source_id, artifact_type, artifact_key)` and stores content plus a content hash. This gives Phase 2 a place for normalized text, extracted URLs/domains/hashtags/mentions/dates, file metadata, and safe link previews.
 
 `processing_jobs` is the PostgreSQL-backed queue boundary for future workers. Jobs have retry limits, lock ownership, lock timestamps, and completion timestamps. Workers must claim jobs atomically with row locks and `skip locked`, write only validated derived outputs, and leave `messages`, `message_versions`, and `attachments` as the immutable source archive.
+
+## Deterministic Preprocessing
+
+Phase 2 adds deterministic preprocessing without AI providers. It extracts URLs, domains, hashtags, Telegram-style mentions, simple dates, normalized text, attachment file metadata, and safe previews. Safe previews intentionally do not fetch remote URLs; link previews are URL-structure summaries, and file previews are based on existing attachment metadata.
+
+Preprocessing jobs use two job types:
+
+- `deterministic_message_preprocess` for `messages`;
+- `deterministic_attachment_preprocess` for `attachments`.
+
+The worker upserts artifacts idempotently into `derived_artifacts`:
+
+- `normalized_text`;
+- `extracted_metadata`;
+- `link_preview`;
+- `file_metadata`;
+- `file_preview`.
+
+This prepares Phase 3 OCR/ASR by establishing the worker pattern and artifact boundary before any heavier local media processing is introduced.

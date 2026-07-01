@@ -8,6 +8,10 @@ import {
   type AttachmentDownloadSummary,
 } from "../domain/attachments/attachment-service.js";
 import { MessageService } from "../domain/messages/message-service.js";
+import {
+  PreprocessingService,
+  type PreprocessingSummary,
+} from "../domain/preprocessing/preprocessing-service.js";
 import { SearchService } from "../search/search-service.js";
 import { LocalStorage } from "../storage/local-storage.js";
 import {
@@ -41,12 +45,24 @@ function assertAttachmentDownloadSummary(value: unknown): AttachmentDownloadSumm
   return value;
 }
 
+function formatPreprocessingSummary(summary: PreprocessingSummary) {
+  return [
+    "Предобработка завершена",
+    `Создано задач: ${summary.jobsCreated}`,
+    `Взято задач: ${summary.jobsClaimed}`,
+    `Завершено: ${summary.jobsCompleted}`,
+    `Ошибок: ${summary.jobsFailed}`,
+    `Артефактов записано: ${summary.artifactsWritten}`,
+  ].join("\n");
+}
+
 export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const bot = new Bot<BotContext>(config.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(hydrateFiles(config.TELEGRAM_BOT_TOKEN));
 
   const messageService = new MessageService(db);
   const searchService = new SearchService(db);
+  const preprocessingService = new PreprocessingService(db);
   const storage = new LocalStorage(config.STORAGE_ROOT);
   const attachmentService = new AttachmentService(
     db,
@@ -85,6 +101,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         "/recent - последние сохраненные",
         "/recent 10 - последние сохраненные с лимитом",
         "/status - состояние хранилища и базы",
+        "/preprocess - запустить пакет детерминированной предобработки",
       ].join("\n"),
     );
   });
@@ -104,6 +121,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     try {
       await storage.ensureReady();
       const stats = await messageService.stats();
+      const preprocessingStats = await preprocessingService.stats();
       await ctx.reply(
         [
           "Статус: ok",
@@ -115,6 +133,11 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
           `Ожидает: ${stats.pending_count}`,
           `Ошибок: ${stats.failed_count}`,
           `Слишком больших: ${stats.skipped_too_large_count}`,
+          `Предобработка ожидает: ${preprocessingStats.pending_count}`,
+          `Предобработка выполняется: ${preprocessingStats.running_count}`,
+          `Предобработка завершена: ${preprocessingStats.completed_count}`,
+          `Предобработка ошибок: ${preprocessingStats.failed_count}`,
+          `Производных артефактов: ${preprocessingStats.artifact_count}`,
         ].join("\n"),
       );
     } catch (error) {
@@ -138,6 +161,12 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         `Ошибок: ${summary.failed}`,
       ].join("\n"),
     );
+  });
+
+  bot.command("preprocess", async (ctx) => {
+    const { limit } = parseLimitPrefix(ctx.match, 20, 100);
+    const summary = await preprocessingService.enqueueAndProcess(`telegram-${ctx.from?.id}`, limit);
+    await ctx.reply(formatPreprocessingSummary(summary));
   });
 
   bot.command("search", async (ctx) => {

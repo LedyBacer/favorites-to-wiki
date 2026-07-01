@@ -19,7 +19,10 @@ export class ProcessingJobService {
 
     const typeFilter =
       options.types && options.types.length > 0
-        ? sql`and type = any(${options.types})`
+        ? sql`and type in (${sql.join(
+            options.types.map((type) => sql`${type}`),
+            sql`, `,
+          )})`
         : sql``;
 
     const result = await this.db.execute<ProcessingJob>(sql`

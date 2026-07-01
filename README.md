@@ -72,6 +72,7 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 - `/status` - PostgreSQL, storage, and basic stats.
 - `/search query` - PostgreSQL full-text search over message text/captions and file names.
 - `/retry_attachments` - retry failed or pending attachment downloads that are due.
+- `/preprocess` - enqueue and run a small deterministic preprocessing batch.
 
 ## Development Commands
 
@@ -82,12 +83,31 @@ npm test
 npm run test:integration
 npm run build
 npm run attachments:retry
+npm run preprocess:run
 ```
 
 In Docker Compose production, run the compiled retry entry point inside the app image:
 
 ```bash
 docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20
+```
+
+Run deterministic preprocessing once:
+
+```bash
+npm run preprocess:run -- 100
+```
+
+Run the compiled preprocessing worker in Docker Compose:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/preprocess.js 100
+```
+
+Run it as a loop when you want a continuously draining worker:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/preprocess.js 100 --loop
 ```
 
 `npm run test:integration` requires a PostgreSQL database URL:
@@ -149,6 +169,7 @@ Core modules:
 - `src/search` - PostgreSQL search service.
 - `src/import` - Telegram Desktop export importer.
 - `src/domain/processing` - PostgreSQL processing job claim/lock primitives for future workers.
+- `src/domain/preprocessing` - deterministic normalized text, metadata, safe preview, and file metadata artifacts.
 
 ## Current Limitations
 

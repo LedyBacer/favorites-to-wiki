@@ -56,6 +56,24 @@ docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20
 
 The same retry path is available from Telegram through `/retry_attachments`.
 
+## Deterministic Preprocessing
+
+Run one preprocessing batch:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/preprocess.js 100
+```
+
+Run the worker loop manually:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/preprocess.js 100 --loop
+```
+
+The same small batch path is available from Telegram through `/preprocess`. The worker writes only `derived_artifacts`; it does not mutate source Telegram rows.
+
 ## Backup
 
 Create the backup directory once:
@@ -138,3 +156,5 @@ Future workers must:
 - increment `attempts` before processing;
 - clear locks on completion or retryable failure;
 - leave original Telegram source rows unchanged.
+
+Phase 2 link and file previews are deliberately safe and deterministic. They do not fetch external URLs. Link previews are derived from URL structure, and file previews are derived from attachment rows, MIME type, filename, local path, size, and SHA-256 availability.
