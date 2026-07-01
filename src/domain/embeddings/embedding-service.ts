@@ -90,6 +90,7 @@ export class EmbeddingService {
               on da.source_kind = 'attachment'
               and da.source_id = a.id
               and da.artifact_type in ('ocr_text', 'transcript')
+              and coalesce(da.content->>'text', '') <> ''
             where a.message_id = messages.id
           )
           or exists (
@@ -341,6 +342,7 @@ export class EmbeddingService {
               on da.source_kind = 'attachment'
               and da.source_id = a.id
               and da.artifact_type in ('ocr_text', 'transcript')
+              and coalesce(da.content->>'text', '') <> ''
             where a.message_id = messages.id
           )
           or exists (
