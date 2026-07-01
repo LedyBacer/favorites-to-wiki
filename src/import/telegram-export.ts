@@ -60,6 +60,8 @@ export interface ParsedTelegramExportMessage {
   editedDate?: Date | undefined;
   text?: string | undefined;
   attachmentPath?: string | undefined;
+  attachmentUnavailableReason?: string | undefined;
+  attachmentUnavailableSource?: string | undefined;
   mimeType?: string | undefined;
   forwardedFrom?: string | undefined;
   replyToMessageId?: number | undefined;
@@ -72,6 +74,7 @@ export interface TelegramExportDryRunSummary {
   unsupportedMessages: number;
   textMessages: number;
   attachmentMessages: number;
+  unavailableAttachments: number;
   editedMessages: number;
   forwardedMessages: number;
   replyMessages: number;
@@ -89,6 +92,7 @@ export interface MappedTelegramExportMessage {
   sourceMessageId: number;
   input: SaveMessageInput;
   attachmentSourcePath?: string | undefined;
+  attachmentUnavailableReason?: string | undefined;
 }
 
 export interface TelegramExportImportSummary {
@@ -97,6 +101,7 @@ export interface TelegramExportImportSummary {
   created: number;
   versionsCreated: number;
   attachments: number;
+  unavailableAttachments: number;
   attachmentsStored: number;
   attachmentFailures: number;
 }
@@ -140,6 +145,9 @@ export function summarizeTelegramDesktopExport(input: unknown): TelegramExportDr
     unsupportedMessages: parsed.messages.length - supportedMessages.length,
     textMessages: supportedMessages.filter((message) => message.messageType === "text").length,
     attachmentMessages: supportedMessages.filter((message) => message.attachmentPath).length,
+    unavailableAttachments: supportedMessages.filter(
+      (message) => message.attachmentUnavailableReason,
+    ).length,
     editedMessages: supportedMessages.filter((message) => message.editedDate).length,
     forwardedMessages: supportedMessages.filter((message) => message.forwardedFrom).length,
     replyMessages: supportedMessages.filter((message) => message.replyToMessageId).length,
@@ -155,11 +163,12 @@ export function mapTelegramDesktopExportToSaveInputs(
   const sourceName = options.sourceName ?? parsed.name;
 
   return parseTelegramDesktopExportJson(parsed).map((message) => {
-    const attachment = message.attachmentPath
+    const attachmentIdSource = message.attachmentPath ?? message.attachmentUnavailableSource;
+    const attachment = attachmentIdSource
       ? {
-          telegramFileId: exportAttachmentId(message.attachmentPath),
-          telegramFileUniqueId: exportAttachmentId(message.attachmentPath),
-          originalFileName: basename(message.attachmentPath),
+          telegramFileId: exportAttachmentId(attachmentIdSource),
+          telegramFileUniqueId: exportAttachmentId(attachmentIdSource),
+          originalFileName: message.attachmentPath ? basename(message.attachmentPath) : undefined,
           mimeType: message.mimeType,
         }
       : undefined;
@@ -185,6 +194,7 @@ export function mapTelegramDesktopExportToSaveInputs(
         attachments: attachment ? [attachment] : [],
       },
       attachmentSourcePath: message.attachmentPath,
+      attachmentUnavailableReason: message.attachmentUnavailableReason,
     };
   });
 }
@@ -219,6 +229,7 @@ export async function importTelegramDesktopExport(
     created: 0,
     versionsCreated: 0,
     attachments: mapped.filter((message) => message.attachmentSourcePath).length,
+    unavailableAttachments: mapped.filter((message) => message.attachmentUnavailableReason).length,
     attachmentsStored: 0,
     attachmentFailures: 0,
   };
@@ -254,6 +265,13 @@ export async function importTelegramDesktopExport(
         );
         summary.attachmentFailures += 1;
       }
+    } else if (message.attachmentUnavailableReason && message.input.attachments[0]) {
+      await markImportedAttachmentSkippedTooLarge(
+        options.db,
+        result.messageId,
+        message.input.attachments[0].telegramFileUniqueId,
+        message.attachmentUnavailableReason,
+      );
     }
   }
 
@@ -267,8 +285,8 @@ function parseExportMessage(
   if (exportType !== "message") return undefined;
 
   const text = exportText(message);
-  const attachmentPath = message.file ?? message.photo;
-  const messageType = exportMessageType(message, text, attachmentPath);
+  const attachment = exportAttachment(message);
+  const messageType = exportMessageType(message, text, attachment.path);
 
   return {
     id: message.id,
@@ -277,7 +295,9 @@ function parseExportMessage(
     date: exportDate(message.date_unixtime, message.date),
     editedDate: exportDate(message.edited_unixtime, message.edited),
     text,
-    attachmentPath,
+    attachmentPath: attachment.path,
+    attachmentUnavailableReason: attachment.unavailableReason,
+    attachmentUnavailableSource: attachment.unavailableSource,
     mimeType: message.mime_type,
     forwardedFrom: message.forwarded_from,
     replyToMessageId: message.reply_to_message_id,
@@ -312,6 +332,15 @@ function exportMessageType(
   return text ? "text" : "unknown";
 }
 
+function exportAttachment(message: TelegramExportMessage) {
+  const path = message.file ?? message.photo;
+  if (!path) return {};
+  if (path.startsWith("(") && path.endsWith(")")) {
+    return { unavailableReason: path.slice(1, -1), unavailableSource: path };
+  }
+  return { path };
+}
+
 function exportDate(unixTime: string | number | undefined, fallback: string | undefined) {
   if (unixTime !== undefined) {
     const date = new Date(Number(unixTime) * 1000);
@@ -341,6 +370,7 @@ function exportMetadata(
     sourceMessageId: message.id,
     sourceMessageType: message.exportType,
     sourceAttachmentPath: message.attachmentPath,
+    sourceAttachmentUnavailableReason: message.attachmentUnavailableReason,
   };
 }
 
@@ -363,6 +393,7 @@ function printDryRunSummary(summary: TelegramExportDryRunSummary) {
     `Unsupported messages: ${summary.unsupportedMessages}`,
     `Text messages: ${summary.textMessages}`,
     `Attachment messages: ${summary.attachmentMessages}`,
+    `Unavailable attachments: ${summary.unavailableAttachments}`,
     `Edited messages: ${summary.editedMessages}`,
     `Forwarded messages: ${summary.forwardedMessages}`,
     `Reply messages: ${summary.replyMessages}`,
@@ -382,6 +413,7 @@ function printImportSummary(summary: TelegramExportImportSummary) {
       `Created messages: ${summary.created}`,
       `Versions created: ${summary.versionsCreated}`,
       `Attachments: ${summary.attachments}`,
+      `Unavailable attachments: ${summary.unavailableAttachments}`,
       `Attachments stored: ${summary.attachmentsStored}`,
       `Attachment failures: ${summary.attachmentFailures}`,
     ].join("\n"),
@@ -489,6 +521,29 @@ async function markImportedAttachmentFailed(
       lastDownloadAttemptAt: new Date(),
       nextRetryAt: null,
       error: error instanceof Error ? error.message : String(error),
+    })
+    .where(
+      and(
+        eq(attachments.messageId, messageId),
+        eq(attachments.telegramFileUniqueId, telegramFileUniqueId),
+      ),
+    );
+}
+
+async function markImportedAttachmentSkippedTooLarge(
+  db: Database,
+  messageId: string,
+  telegramFileUniqueId: string,
+  reason: string,
+) {
+  await db
+    .update(attachments)
+    .set({
+      downloadStatus: "skipped_too_large",
+      downloadAttempts: 0,
+      lastDownloadAttemptAt: new Date(),
+      nextRetryAt: null,
+      error: reason,
     })
     .where(
       and(

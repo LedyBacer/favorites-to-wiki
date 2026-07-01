@@ -47,17 +47,23 @@ describe("Telegram Desktop export parser", () => {
           photo: "photos/photo_1.jpg",
           edited_unixtime: 1782870300,
         },
-        { id: 4, type: "service", action: "pin_message" },
+        {
+          id: 4,
+          type: "message",
+          file: "(File exceeds maximum size. Change data exporting settings to download.)",
+        },
+        { id: 5, type: "service", action: "pin_message" },
       ],
     });
 
     expect(summary).toEqual({
       chatName: "Saved Messages",
-      totalMessages: 4,
-      supportedMessages: 3,
+      totalMessages: 5,
+      supportedMessages: 4,
       unsupportedMessages: 1,
       textMessages: 1,
       attachmentMessages: 2,
+      unavailableAttachments: 1,
       editedMessages: 1,
       forwardedMessages: 1,
       replyMessages: 1,
@@ -132,6 +138,35 @@ describe("Telegram Desktop export parser", () => {
         mimeType: "application/pdf",
       },
     ]);
+  });
+
+  it("keeps unavailable export attachments in metadata without creating attachment inputs", () => {
+    const [message] = mapTelegramDesktopExportToSaveInputs(
+      {
+        messages: [
+          {
+            id: 12,
+            type: "message",
+            file: "(File exceeds maximum size. Change data exporting settings to download.)",
+          },
+        ],
+      },
+      {
+        telegramChatId: -9001,
+        telegramUserId: 328430137,
+      },
+    );
+
+    expect(message?.input.messageType).toBe("document");
+    expect(message?.input.attachments).toHaveLength(1);
+    expect(message?.input.attachments[0]?.telegramFileUniqueId).toMatch(/^telegram-export:/);
+    expect(message?.attachmentUnavailableReason).toBe(
+      "File exceeds maximum size. Change data exporting settings to download.",
+    );
+    expect(message?.input.metadata).toMatchObject({
+      sourceAttachmentUnavailableReason:
+        "File exceeds maximum size. Change data exporting settings to download.",
+    });
   });
 
   it("derives stable import identity from export chat metadata", () => {
