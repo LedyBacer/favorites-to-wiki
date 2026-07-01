@@ -55,6 +55,11 @@ export class OllamaChatClient {
         messages: options.messages,
         stream: false,
         format: options.schema,
+        think: false,
+        options: {
+          temperature: 0,
+          num_predict: 2048,
+        },
       }),
       signal: AbortSignal.timeout(this.options.timeoutMs),
     });
