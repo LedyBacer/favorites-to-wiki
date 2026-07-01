@@ -35,7 +35,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 
 ## Known Gaps
 
-- Telegram Desktop export importer is currently a scaffold.
+- Telegram Desktop export importer supports dry-run parsing and summary reporting; database import is not wired yet.
 - No webhook HTTP server.
 - No OCR, ASR, embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
 - Integration tests with real PostgreSQL are not yet wired; current tests focus on deterministic policy.
@@ -50,10 +50,14 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - PostgreSQL integration tests live under `tests/integration` and run with `TEST_DATABASE_URL=... npm run test:integration`.
 - Attachment retries track `download_attempts`, `last_download_attempt_at`, and `next_retry_at`; retry entry points are `/retry_attachments` and `npm run attachments:retry`.
 - In Docker Compose production, run attachment retry as `docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20`.
-- Roadmap phases 1.1, 1.2, and the MVP scope of 1.3 are complete; next planned work is Phase 1.4 search and Telegram UX.
+- Roadmap phases 1.1, 1.2, 1.3, and 1.4 are complete; current planned work is Phase 1.5 Telegram Desktop export import.
 
 ## Maintenance Rule
 
 Update this file whenever architecture, data ownership, persistence behavior, or module boundaries change materially.
+
+Deployment updates to the Proxmox server must be delivered through Git: commit locally, push, then update the server with `git pull` before rebuilding/restarting Docker. Do not copy project files to the server manually as a stage-completion path.
+
+An implementation phase is not complete until the code is committed, pushed, pulled on the Proxmox deployment, and the deployed app has passed its Docker healthcheck when the phase changes runtime behavior.
 
 Operational status, completed work, known gaps, and next implementation phases are tracked in `docs/roadmap.md`.

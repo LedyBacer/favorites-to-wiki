@@ -3,21 +3,43 @@ import { Bot, type Context } from "grammy";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config/env.js";
 import type { Database } from "../db/client.js";
-import { AttachmentService } from "../domain/attachments/attachment-service.js";
+import {
+  AttachmentService,
+  type AttachmentDownloadSummary,
+} from "../domain/attachments/attachment-service.js";
 import { MessageService } from "../domain/messages/message-service.js";
 import { SearchService } from "../search/search-service.js";
 import { LocalStorage } from "../storage/local-storage.js";
 import {
-  formatTelegramDate,
   formatRecentMessage,
+  formatSearchResult,
   formatSavedAck,
-  shortText,
-  telegramMessageLink,
+  parseLimitPrefix,
+  splitTelegramMessage,
 } from "./commands/format.js";
 import { parseTelegramMessage } from "./handlers/telegram-message-parser.js";
 import { isAllowedTelegramUser } from "./middleware/allowlist.js";
 
 type BotContext = FileFlavor<Context>;
+
+function isAttachmentDownloadSummary(value: unknown): value is AttachmentDownloadSummary {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<Record<keyof AttachmentDownloadSummary, unknown>>;
+  return (
+    typeof candidate.attempted === "number" &&
+    typeof candidate.downloaded === "number" &&
+    typeof candidate.reused === "number" &&
+    typeof candidate.skippedTooLarge === "number" &&
+    typeof candidate.failed === "number"
+  );
+}
+
+function assertAttachmentDownloadSummary(value: unknown): AttachmentDownloadSummary {
+  if (!isAttachmentDownloadSummary(value)) {
+    throw new Error("Attachment retry returned an invalid summary");
+  }
+  return value;
+}
 
 export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const bot = new Bot<BotContext>(config.TELEGRAM_BOT_TOKEN);
@@ -50,24 +72,32 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   });
 
   bot.command("start", async (ctx) => {
-    await ctx.reply("Personal inbox is running. Send text, links, media, files, or use /search.");
+    await ctx.reply(
+      "Личный inbox работает. Присылай текст, ссылки, медиа, файлы или используй /search.",
+    );
   });
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
       [
-        "/search query - search saved items",
-        "/recent - latest saved items",
-        "/status - storage and database status",
+        "/search запрос - поиск по сохраненному",
+        "/search 10 запрос - поиск с лимитом",
+        "/recent - последние сохраненные",
+        "/recent 10 - последние сохраненные с лимитом",
+        "/status - состояние хранилища и базы",
       ].join("\n"),
     );
   });
 
   bot.command("recent", async (ctx) => {
-    const rows = await messageService.recent(5);
-    await ctx.reply(
-      rows.length ? rows.map(formatRecentMessage).join("\n\n") : "No saved messages yet.",
-    );
+    const { limit } = parseLimitPrefix(ctx.match, 5, config.SEARCH_RESULT_LIMIT);
+    const rows = await messageService.recent(limit);
+    const text = rows.length
+      ? rows.map(formatRecentMessage).join("\n\n")
+      : "Сохраненных сообщений пока нет.";
+    for (const chunk of splitTelegramMessage(text)) {
+      await ctx.reply(chunk);
+    }
   });
 
   bot.command("status", async (ctx) => {
@@ -76,65 +106,59 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
       const stats = await messageService.stats();
       await ctx.reply(
         [
-          "Status: ok",
+          "Статус: ok",
           `PostgreSQL: ok`,
-          `Storage: ok`,
-          `Messages: ${stats.messages_count}`,
-          `Attachments: ${stats.attachments_count}`,
-          `Downloaded: ${stats.downloaded_count}`,
-          `Pending: ${stats.pending_count}`,
-          `Failed: ${stats.failed_count}`,
-          `Skipped too large: ${stats.skipped_too_large_count}`,
+          `Хранилище: ok`,
+          `Сообщений: ${stats.messages_count}`,
+          `Вложений: ${stats.attachments_count}`,
+          `Скачано: ${stats.downloaded_count}`,
+          `Ожидает: ${stats.pending_count}`,
+          `Ошибок: ${stats.failed_count}`,
+          `Слишком больших: ${stats.skipped_too_large_count}`,
         ].join("\n"),
       );
     } catch (error) {
       logger.error({ error }, "Status check failed");
       await ctx.reply(
-        `Status: degraded\n${error instanceof Error ? error.message : String(error)}`,
+        `Статус: degraded\n${error instanceof Error ? error.message : String(error)}`,
       );
     }
   });
 
   bot.command("retry_attachments", async (ctx) => {
-    const summary = await attachmentService.retryFailedAttachments(20);
+    const retryResult: unknown = await attachmentService.retryFailedAttachments(20);
+    const summary = assertAttachmentDownloadSummary(retryResult);
     await ctx.reply(
       [
-        "Attachment retry complete",
-        `Attempted: ${summary.attempted}`,
-        `Downloaded: ${summary.downloaded}`,
-        `Reused: ${summary.reused}`,
-        `Skipped too large: ${summary.skippedTooLarge}`,
-        `Failed: ${summary.failed}`,
+        "Повторная загрузка вложений завершена",
+        `Проверено: ${summary.attempted}`,
+        `Скачано: ${summary.downloaded}`,
+        `Переиспользовано: ${summary.reused}`,
+        `Слишком большие: ${summary.skippedTooLarge}`,
+        `Ошибок: ${summary.failed}`,
       ].join("\n"),
     );
   });
 
   bot.command("search", async (ctx) => {
-    const query = ctx.match.trim();
-    if (!query) {
-      await ctx.reply("Usage: /search query");
-      return;
-    }
-    const results = await searchService.search(query, config.SEARCH_RESULT_LIMIT);
-    if (results.length === 0) {
-      await ctx.reply("Nothing found.");
-      return;
-    }
-    await ctx.reply(
-      results
-        .map((result) => {
-          const link = telegramMessageLink(result.telegramChatId, result.telegramMessageId);
-          return [
-            `${formatTelegramDate(result.telegramDate)} · ${result.messageType}`,
-            shortText(result.currentText),
-            result.attachmentNames ? `Files: ${result.attachmentNames}` : "",
-            link ?? "",
-          ]
-            .filter(Boolean)
-            .join("\n");
-        })
-        .join("\n\n"),
+    const { limit, rest: query } = parseLimitPrefix(
+      ctx.match,
+      config.SEARCH_RESULT_LIMIT,
+      config.SEARCH_RESULT_LIMIT,
     );
+    if (!query) {
+      await ctx.reply("Использование: /search запрос");
+      return;
+    }
+    const results = await searchService.search(query, limit);
+    if (results.length === 0) {
+      await ctx.reply("Ничего не найдено.");
+      return;
+    }
+    const text = results.map((result) => formatSearchResult(result, query)).join("\n\n");
+    for (const chunk of splitTelegramMessage(text)) {
+      await ctx.reply(chunk);
+    }
   });
 
   async function saveIncoming(ctx: BotContext) {

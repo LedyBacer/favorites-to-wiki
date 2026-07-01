@@ -23,7 +23,7 @@ export class AttachmentService {
     private readonly maxAttempts: number,
   ) {}
 
-  async downloadPendingForMessage(messageId: string) {
+  async downloadPendingForMessage(messageId: string): Promise<AttachmentDownloadSummary> {
     const pending = await this.db.query.attachments.findMany({
       where: eq(attachments.messageId, messageId),
     });
@@ -31,7 +31,7 @@ export class AttachmentService {
     return this.downloadAttachments(pending);
   }
 
-  async retryFailedAttachments(limit = 20) {
+  async retryFailedAttachments(limit = 20): Promise<AttachmentDownloadSummary> {
     const retryable = await this.db.query.attachments.findMany({
       where: and(
         inArray(attachments.downloadStatus, ["pending", "failed"]),

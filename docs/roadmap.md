@@ -234,14 +234,15 @@ Exit criteria:
 
 Priority: medium.
 
-- Improve `/search` ranking using PostgreSQL `ts_rank`.
-- Generate clearer result snippets and include attachment summaries.
-- Split long search responses safely across multiple Telegram messages.
+- Completed: improve `/search` ranking using PostgreSQL `ts_rank`.
+- Completed: generate clearer result snippets and include attachment summaries.
+- Completed: split long `/recent` and `/search` responses safely across multiple Telegram messages.
 - Improve message links:
   - keep `t.me/c/...` for supergroups/channels where valid;
   - avoid misleading links for private chats where Telegram cannot form a public URL.
-- Add pagination or `limit` support for `/recent` and `/search`.
-- Localize bot responses consistently. Current responses are mixed English/Russian.
+- Completed: add `limit` support for `/recent` and `/search`.
+- Completed: localize core bot command responses consistently in Russian.
+- Completed: run real Telegram smoke test for the updated search UX on the Proxmox deployment.
 
 Exit criteria:
 
@@ -253,18 +254,20 @@ Exit criteria:
 
 Priority: medium.
 
-- Define supported Telegram Desktop JSON export subset.
+- Completed: define the initial supported Telegram Desktop JSON export subset for dry-run analysis.
+- Completed: add dry-run parsing, unsupported-type reporting, and summary counts.
 - Parse exported messages into the same message model.
 - Map exported files into attachment records.
 - Preserve export source metadata without storing unsafe raw blobs.
 - Make repeated import idempotent.
-- Add dry-run mode:
+- Completed: add dry-run mode:
 
   ```bash
   npm run import:telegram -- /path/to/result.json --dry-run
   ```
 
-- Add progress logging and summary counts.
+- Completed: add dry-run summary counts.
+- Add import progress logging for database writes.
 
 Exit criteria:
 
