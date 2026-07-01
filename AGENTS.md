@@ -58,6 +58,8 @@ Update this file whenever architecture, data ownership, persistence behavior, or
 
 Deployment updates to the Proxmox server must be delivered through Git: commit locally, push, then update the server with `git pull` before rebuilding/restarting Docker. Do not copy project files to the server manually as a stage-completion path.
 
+Real Telegram Desktop export directories such as `ChatExport_*/` contain sensitive data. They must never be committed, pushed, or transferred through Git. Transfer them manually by SFTP to a temporary server path for smoke tests/imports, and remove the temporary server copy after use.
+
 An implementation phase is not complete until the code is committed, pushed, pulled on the Proxmox deployment, and the deployed app has passed its Docker healthcheck when the phase changes runtime behavior.
 
 Operational status, completed work, known gaps, and next implementation phases are tracked in `docs/roadmap.md`.
