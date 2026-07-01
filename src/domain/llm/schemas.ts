@@ -109,13 +109,13 @@ export const classificationJsonSchema = {
 };
 
 export const imageAnalysisOutputSchema = z.object({
-  description: z.string().min(1).max(3000),
-  visibleText: z.string().max(4000).nullable().default(null),
-  language: z.string().max(40).nullable().default(null),
-  objects: z.array(z.string().min(1).max(80)).max(30).default([]),
-  tags: z.array(z.string().min(1).max(64)).max(30).default([]),
-  safetyNotes: z.string().max(1000).nullable().default(null),
-  confidence: z.number().min(0).max(1).default(0.5),
+  description: textField(3000).catch("Описание изображения недоступно"),
+  visibleText: nullableTextField(4000).catch(null),
+  language: nullableTextField(40).catch(null),
+  objects: stringList(80, 30).catch([]),
+  tags: stringList(64, 30).catch([]),
+  safetyNotes: nullableTextField(1000).catch(null),
+  confidence: z.number().min(0).max(1).catch(0.5),
 });
 
 export type ImageAnalysisOutput = z.output<typeof imageAnalysisOutputSchema>;
@@ -142,3 +142,42 @@ export const imageAnalysisJsonSchema = {
     "confidence",
   ],
 };
+
+function textField(maxLength: number) {
+  return z.preprocess((value) => valueToText(value), z.string().min(1).max(maxLength));
+}
+
+function nullableTextField(maxLength: number) {
+  return z.preprocess(
+    (value) => (value === null || value === undefined ? null : valueToText(value)),
+    z.string().max(maxLength).nullable(),
+  );
+}
+
+function stringList(maxItemLength: number, maxItems: number) {
+  return z.preprocess((value) => {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => valueToText(item))
+      .filter((item): item is string => Boolean(item?.trim()))
+      .slice(0, maxItems);
+  }, z.array(z.string().min(1).max(maxItemLength)).max(maxItems));
+}
+
+function valueToText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map(valueToText).filter(Boolean).join("; ");
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        const text = valueToText(item);
+        return text ? `${key}: ${text}` : undefined;
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return undefined;
+}
