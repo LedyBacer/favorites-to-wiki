@@ -50,8 +50,9 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - PostgreSQL integration tests live under `tests/integration` and run with `TEST_DATABASE_URL=... npm run test:integration`.
 - Attachment retries track `download_attempts`, `last_download_attempt_at`, and `next_retry_at`; retry entry points are `/retry_attachments` and `npm run attachments:retry`.
 - In Docker Compose production, run attachment retry as `docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20`.
-- Roadmap phases 1.1, 1.2, 1.3, 1.4, and 1.5 are complete; current planned work is Phase 1.6 observability and operations.
-- Phase 2 deterministic preprocessing is not blocked by the schema, but it should wait until Phase 1.6 documents startup diagnostics, backup, restore, and deployment operations.
+- `derived_artifacts` is the rebuildable storage boundary for future deterministic preprocessing outputs; do not mix derived Phase 2 data into `messages.metadata`.
+- `processing_jobs` has lock ownership, lock timestamps, retry limits, and completion timestamps for future worker claim semantics.
+- Roadmap phases 1.1, 1.2, 1.3, 1.4, and 1.5 are complete; current planned work is Phase 1.6 deployment verification and backup/restore smoke testing.
 
 ## Maintenance Rule
 

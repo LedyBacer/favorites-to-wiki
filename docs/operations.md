@@ -1,0 +1,140 @@
+# Operations Runbook
+
+## Proxmox Docker Host
+
+- Host: `192.168.1.169`
+- User: `root`
+- Project directory: `/opt/favorites-to-wiki`
+- Compose file: `/opt/favorites-to-wiki/docker-compose.yml`
+- Runtime secrets: `/opt/favorites-to-wiki/.env`
+- Backup directory: `/opt/favorites-to-wiki/backups`
+
+Do not copy project files to the server manually for normal updates. Deployment changes go through Git.
+
+## Update Deployment
+
+```bash
+cd /opt/favorites-to-wiki
+git pull
+docker compose build app
+docker compose up -d app
+docker compose ps
+docker compose logs --tail=100 app
+```
+
+The app applies bundled Drizzle migrations at startup. A healthy deployment must show the app service as `healthy`.
+
+## Diagnose Runtime State
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose ps
+docker compose logs --tail=200 app
+docker compose logs --tail=100 postgres
+docker compose exec -T postgres pg_isready -U favorites -d favorites
+docker compose exec -T app node dist/app/healthcheck.js
+```
+
+Startup logs include a structured `Startup summary` entry with:
+
+- `nodeEnv`;
+- `storageRoot`;
+- `maxAttachmentBytes`;
+- `maxAttachmentDownloadAttempts`;
+- `searchResultLimit`;
+- `botAcknowledgements`;
+- `allowedUserCount`;
+- `migrationSuccess`;
+- bot identity from Telegram `getMe`.
+
+## Attachment Retry
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20
+```
+
+The same retry path is available from Telegram through `/retry_attachments`.
+
+## Backup
+
+Create the backup directory once:
+
+```bash
+cd /opt/favorites-to-wiki
+mkdir -p backups
+```
+
+Create a PostgreSQL custom-format dump and a tar archive of the Telegram file storage volume:
+
+```bash
+cd /opt/favorites-to-wiki
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+docker compose exec -T postgres pg_dump -U favorites -d favorites -Fc > "backups/postgres-${STAMP}.dump"
+docker run --rm \
+  -v favorites-to-wiki_telegram_files:/data:ro \
+  -v /opt/favorites-to-wiki/backups:/backup \
+  alpine tar -czf "/backup/telegram-files-${STAMP}.tgz" -C /data .
+ls -lh "backups/postgres-${STAMP}.dump" "backups/telegram-files-${STAMP}.tgz"
+```
+
+If the Compose project name changes, confirm the volume name with:
+
+```bash
+docker volume ls | grep telegram_files
+```
+
+## Restore Test
+
+Run restore tests without touching the production `favorites` database:
+
+```bash
+cd /opt/favorites-to-wiki
+POSTGRES_DUMP="backups/postgres-YYYYMMDDTHHMMSSZ.dump"
+FILES_ARCHIVE="backups/telegram-files-YYYYMMDDTHHMMSSZ.tgz"
+
+docker compose exec -T postgres dropdb -U favorites --if-exists favorites_restore_check
+docker compose exec -T postgres createdb -U favorites favorites_restore_check
+docker compose exec -T postgres pg_restore -U favorites -d favorites_restore_check < "$POSTGRES_DUMP"
+docker compose exec -T postgres psql -U favorites -d favorites_restore_check -c \
+  "select count(*) as messages from messages; select count(*) as attachments from attachments;"
+docker compose exec -T postgres dropdb -U favorites favorites_restore_check
+
+rm -rf /tmp/favorites-storage-restore-check
+mkdir -p /tmp/favorites-storage-restore-check
+tar -xzf "$FILES_ARCHIVE" -C /tmp/favorites-storage-restore-check
+find /tmp/favorites-storage-restore-check -type f | head
+rm -rf /tmp/favorites-storage-restore-check
+```
+
+The restore test passes when `pg_restore` exits successfully, restored tables can be queried, and the storage archive extracts readable files.
+
+## Full Restore
+
+For a real restore, stop the app before changing production state:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose stop app
+docker compose exec -T postgres dropdb -U favorites --if-exists favorites
+docker compose exec -T postgres createdb -U favorites favorites
+docker compose exec -T postgres pg_restore -U favorites -d favorites < backups/postgres-YYYYMMDDTHHMMSSZ.dump
+docker run --rm \
+  -v favorites-to-wiki_telegram_files:/data \
+  -v /opt/favorites-to-wiki/backups:/backup \
+  alpine sh -c 'rm -rf /data/* && tar -xzf /backup/telegram-files-YYYYMMDDTHHMMSSZ.tgz -C /data'
+docker compose up -d app
+docker compose ps
+```
+
+## Phase 2 Operational Guardrails
+
+Deterministic preprocessing must not write into `messages.metadata` as its primary store. Store rebuildable outputs in `derived_artifacts`, keyed by source object and artifact type. Use `processing_jobs` with atomic claim semantics before adding any background worker loop.
+
+Future workers must:
+
+- claim jobs with `for update skip locked`;
+- set `locked_by` and `locked_at`;
+- increment `attempts` before processing;
+- clear locks on completion or retryable failure;
+- leave original Telegram source rows unchanged.

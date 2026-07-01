@@ -2,9 +2,15 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type Database } from "../../src/db/client.js";
 import { runMigrations } from "../../src/db/migrate.js";
-import { attachments, messageVersions } from "../../src/db/schema.js";
+import {
+  attachments,
+  derivedArtifacts,
+  messageVersions,
+  processingJobs,
+} from "../../src/db/schema.js";
 import { MessageService } from "../../src/domain/messages/message-service.js";
 import type { SaveMessageInput } from "../../src/domain/messages/types.js";
+import { ProcessingJobService } from "../../src/domain/processing/processing-job-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -23,6 +29,7 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
   beforeEach(async () => {
     await db.execute(sql`
       truncate table
+        derived_artifacts,
         attachments,
         message_versions,
         bundle_messages,
@@ -47,12 +54,13 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
       select table_name
       from information_schema.tables
       where table_schema = 'public'
-        and table_name in ('messages', 'message_versions', 'attachments', 'processing_jobs')
+        and table_name in ('messages', 'message_versions', 'attachments', 'processing_jobs', 'derived_artifacts')
       order by table_name
     `);
 
     expect(result.rows.map((row) => row.table_name)).toEqual([
       "attachments",
+      "derived_artifacts",
       "message_versions",
       "messages",
       "processing_jobs",
@@ -152,6 +160,69 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
       where: (table, { eq }) => eq(table.telegramMessageId, 1007),
     });
     expect(reply?.replyToMessageId).toBe(parent.messageId);
+  });
+
+  it("stores deterministic derived artifacts separately from source messages", async () => {
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1008, text: "https://example.com #tag" }),
+    );
+
+    await db.insert(derivedArtifacts).values({
+      sourceKind: "message",
+      sourceId: source.messageId,
+      artifactType: "extracted_metadata",
+      artifactKey: "deterministic-v1",
+      contentHash: "sha256:test",
+      content: { urls: ["https://example.com"], hashtags: ["tag"] },
+    });
+
+    const rows = await db.select().from(derivedArtifacts);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.sourceId).toBe(source.messageId);
+    expect(rows[0]?.artifactType).toBe("extracted_metadata");
+  });
+
+  it("claims processing jobs atomically with worker ownership", async () => {
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1009, text: "needs preprocessing" }),
+    );
+    await db.insert(processingJobs).values([
+      {
+        type: "extract_metadata",
+        subjectKind: "message",
+        subjectId: source.messageId,
+        payload: { version: 1 },
+      },
+      {
+        type: "normalize_text",
+        subjectKind: "message",
+        subjectId: source.messageId,
+        payload: { version: 1 },
+      },
+    ]);
+
+    const processingJobService = new ProcessingJobService(db);
+    const firstClaim = await processingJobService.claimPendingJobs({
+      workerId: "integration-worker-a",
+      limit: 1,
+    });
+    const secondClaim = await processingJobService.claimPendingJobs({
+      workerId: "integration-worker-b",
+      limit: 10,
+    });
+
+    expect(firstClaim).toHaveLength(1);
+    expect(secondClaim).toHaveLength(1);
+    expect(firstClaim[0]?.lockedBy).toBe("integration-worker-a");
+    expect(secondClaim[0]?.lockedBy).toBe("integration-worker-b");
+    expect(firstClaim[0]?.id).not.toBe(secondClaim[0]?.id);
+
+    await processingJobService.completeJob(firstClaim[0]!.id);
+    const noImmediateReclaim = await processingJobService.claimPendingJobs({
+      workerId: "integration-worker-c",
+      limit: 10,
+    });
+    expect(noImmediateReclaim).toHaveLength(0);
   });
 
   async function countMessagesAndVersions() {

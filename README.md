@@ -118,20 +118,26 @@ Importer entry point:
 npm run import:telegram -- /path/to/result.json
 ```
 
-Planned process:
+Dry-run summary:
+
+```bash
+npm run import:telegram -- /path/to/result.json --dry-run
+```
+
+Supported import flow:
 
 1. Export Telegram “Saved Messages” from Telegram Desktop as JSON.
-2. Map exported messages and files into the same source message and attachment model.
-3. Preserve source metadata and versions where possible.
-4. Make repeated imports idempotent.
-
-The current importer is a scaffold only; live bot ingestion is the first milestone.
+2. Map supported exported messages and files into the same source message and attachment model.
+3. Preserve curated export metadata.
+4. Store local exported files into the configured storage root.
+5. Make repeated imports idempotent.
 
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md).
 
 Project status and next steps are tracked in [docs/roadmap.md](docs/roadmap.md).
+Operations, backup, restore, and Proxmox deployment commands are tracked in [docs/operations.md](docs/operations.md).
 
 Core modules:
 
@@ -141,12 +147,12 @@ Core modules:
 - `src/storage` - local Docker-volume file storage and safe path building.
 - `src/db` - Drizzle schema, client, migrations.
 - `src/search` - PostgreSQL search service.
-- `src/import` - Telegram Desktop export importer scaffold.
+- `src/import` - Telegram Desktop export importer.
+- `src/domain/processing` - PostgreSQL processing job claim/lock primitives for future workers.
 
 ## Current Limitations
 
 - Long polling only; no webhook server yet.
 - No OCR, ASR, embeddings, LLM, reminders, web UI, or external AI calls.
-- Importer is only a scaffold.
-- Unit tests cover deterministic policy; full database integration tests still need a disposable PostgreSQL test harness.
+- Integration tests require `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json`; test files are not emitted to `dist`.

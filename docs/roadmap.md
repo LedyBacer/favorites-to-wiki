@@ -42,7 +42,7 @@ Latest committed work on `main`:
 - Added `/start`, `/help`, `/recent`, `/status`, and `/search`.
 - Added PostgreSQL full-text search plus `ILIKE` fallback over message text/captions and attachment names.
 - Added placeholder tables for `bundles`, `records`, `entities`, `relations`, and `processing_jobs`.
-- Added importer command scaffold: `npm run import:telegram -- /path/to/result.json`.
+- Added Telegram Desktop importer: `npm run import:telegram -- /path/to/result.json`.
 - Added `docs/architecture.md`, `AGENTS.md`, and README setup/deployment instructions.
 - Added unit tests for allowlist, attachment path safety, and message versioning policy.
 - Added runtime migration execution so the production image does not depend on `drizzle-kit`.
@@ -57,6 +57,7 @@ Latest committed work on `main`:
   - one edited text message produced version 1 and version 2.
 - Added an app container healthcheck that verifies PostgreSQL and local storage availability.
 - Added PostgreSQL integration tests for migration idempotency, concurrent duplicate first delivery, concurrent identical edits, and concurrent different edits.
+- Added Phase 2 preparation primitives: `derived_artifacts` for rebuildable outputs and lock-aware `processing_jobs` claim semantics.
 
 ### Partially Completed
 
@@ -287,21 +288,23 @@ Exit criteria:
 
 Priority: medium.
 
-- Add an HTTP health endpoint or a small healthcheck command for Docker.
+Status: implementation complete, pending deployment verification.
+
+- Completed: add an HTTP health endpoint or a small healthcheck command for Docker.
 - Completed: add Docker `healthcheck` for the app service.
-- Add structured startup summary:
+- Completed: add structured startup summary:
   - config mode;
   - storage root;
   - max attachment size;
   - migration success;
   - bot identity after `getMe`.
-- Add deployment docs for the Proxmox host:
+- Completed: add deployment docs for the Proxmox host:
   - project directory;
   - update command;
   - backup locations;
   - logs command;
   - restore notes.
-- Add backup plan:
+- Completed: add backup plan:
   - PostgreSQL dump;
   - storage volume backup;
   - restore test.
@@ -313,7 +316,7 @@ Exit criteria:
 
 ## Later AI-Focused Phases
 
-Only start these after the archive layer has real data and Phase 1 persistence gaps are closed. As of this review, Phases 1.1-1.5 are complete enough for daily archive use, and the schema already has extension tables for derived data. Phase 2 should still wait until Phase 1.6 is finished because deterministic workers will make operations, backup, and restore more important.
+Only start these after the archive layer has real data and Phase 1 persistence gaps are closed. As of this review, Phases 1.1-1.5 are complete enough for daily archive use, and the schema already has extension tables for derived data. Phase 2 should still wait for Phase 1.6 deployment verification and backup/restore smoke testing because deterministic workers will make operations, backup, and restore more important.
 
 ### Readiness For Phase 2
 
@@ -321,16 +324,16 @@ Ready foundations:
 
 - source messages, versions, attachments, curated metadata, and future derived entities are separated;
 - `processing_jobs` exists as a PostgreSQL-backed queue table;
+- `processing_jobs` has worker ownership, lock timestamps, retry limits, and completion timestamps for atomic future claims;
+- `derived_artifacts` exists for normalized text, extracted metadata, file metadata, link previews, OCR text, transcripts, and embedding references;
 - `records`, `entities`, `relations`, and `bundles` exist as extension points;
 - attachment files have stable local paths and SHA-256 values after download/import;
 - no external AI provider is part of the runtime path.
 
 Before starting Phase 2:
 
-- finish Phase 1.6 startup summary and operational docs;
-- document and test PostgreSQL plus storage backup/restore;
-- define where deterministic derived artifacts will be stored instead of mixing them into `messages.metadata`;
-- add worker locking/claiming semantics for `processing_jobs` before any background loop writes derived data.
+- deploy the Phase 1.6 changes to Proxmox;
+- run and record one PostgreSQL plus storage backup/restore smoke test.
 
 ### Phase 2 - Deterministic Preprocessing
 

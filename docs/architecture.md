@@ -54,3 +54,9 @@ The schema already includes placeholders for:
 - processing jobs for OCR, ASR, embeddings, previews, and LLM classification.
 
 Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes.
+
+## Phase 2 Preparation
+
+Deterministic preprocessing outputs are stored as rebuildable derived artifacts, not mixed into the original Telegram source tables. The `derived_artifacts` table is keyed by `(source_kind, source_id, artifact_type, artifact_key)` and stores content plus a content hash. This gives Phase 2 a place for normalized text, extracted URLs/domains/hashtags/mentions/dates, file metadata, and safe link previews.
+
+`processing_jobs` is the PostgreSQL-backed queue boundary for future workers. Jobs have retry limits, lock ownership, lock timestamps, and completion timestamps. Workers must claim jobs atomically with row locks and `skip locked`, write only validated derived outputs, and leave `messages`, `message_versions`, and `attachments` as the immutable source archive.

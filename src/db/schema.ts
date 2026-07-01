@@ -50,6 +50,16 @@ export const processingJobStatus = pgEnum("processing_job_status", [
   "failed",
 ]);
 
+export const derivedArtifactType = pgEnum("derived_artifact_type", [
+  "normalized_text",
+  "extracted_metadata",
+  "file_metadata",
+  "link_preview",
+  "ocr_text",
+  "transcript",
+  "embedding_reference",
+]);
+
 export const messages = pgTable(
   "messages",
   {
@@ -215,12 +225,42 @@ export const processingJobs = pgTable("processing_jobs", {
   subjectId: uuid("subject_id").notNull(),
   status: processingJobStatus("status").notNull().default("pending"),
   attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  lockedBy: text("locked_by"),
+  lockedAt: timestamp("locked_at", { withTimezone: true }),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
   lastError: text("last_error"),
   runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const derivedArtifacts = pgTable(
+  "derived_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceKind: text("source_kind").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    artifactType: derivedArtifactType("artifact_type").notNull(),
+    artifactKey: text("artifact_key").notNull().default("default"),
+    contentHash: text("content_hash").notNull(),
+    content: jsonb("content").$type<Record<string, unknown>>().notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceArtifactUq: unique("derived_artifacts_source_artifact_uq").on(
+      table.sourceKind,
+      table.sourceId,
+      table.artifactType,
+      table.artifactKey,
+    ),
+    sourceIdx: index("derived_artifacts_source_idx").on(table.sourceKind, table.sourceId),
+    typeIdx: index("derived_artifacts_type_idx").on(table.artifactType),
+  }),
+);
 
 export const messagesRelations = drizzleRelations(messages, ({ many, one }) => ({
   versions: many(messageVersions),
@@ -251,3 +291,7 @@ export type MessageVersion = typeof messageVersions.$inferSelect;
 export type NewMessageVersion = typeof messageVersions.$inferInsert;
 export type Attachment = typeof attachments.$inferSelect;
 export type NewAttachment = typeof attachments.$inferInsert;
+export type ProcessingJob = typeof processingJobs.$inferSelect;
+export type NewProcessingJob = typeof processingJobs.$inferInsert;
+export type DerivedArtifact = typeof derivedArtifacts.$inferSelect;
+export type NewDerivedArtifact = typeof derivedArtifacts.$inferInsert;

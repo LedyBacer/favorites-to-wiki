@@ -142,4 +142,4 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
-ChatExport_2026-07-01/
+ChatExport_*/
