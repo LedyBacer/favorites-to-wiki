@@ -13,8 +13,8 @@ export class ProcessingJobService {
 
   async claimPendingJobs(options: ClaimProcessingJobsOptions): Promise<ProcessingJob[]> {
     const limit = options.limit ?? 10;
-    if (limit < 1 || limit > 100) {
-      throw new Error("Processing job claim limit must be between 1 and 100");
+    if (limit < 1 || limit > 5000) {
+      throw new Error("Processing job claim limit must be between 1 and 5000");
     }
 
     const typeFilter =
