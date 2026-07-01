@@ -80,6 +80,22 @@ const envSchema = z.object({
     .default(25 * 1024 * 1024),
   WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(25),
   WORKER_IDLE_MS: z.coerce.number().int().min(1000).max(10 * 60 * 1000).default(15000),
+  WORKER_HEALTHCHECK: z
+    .enum(["true", "false", "1", "0"])
+    .default("false")
+    .transform((value) => value === "true" || value === "1"),
+  WORKER_HEARTBEAT_MAX_AGE_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(60 * 60 * 1000)
+    .default(5 * 60 * 1000),
+  WORKER_ATTACHMENT_RETRY_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(24 * 60 * 60 * 1000)
+    .default(15 * 60 * 1000),
   LOG_LEVEL: z.string().default("info"),
 });
 

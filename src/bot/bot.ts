@@ -1,5 +1,5 @@
 import { hydrateFiles, type FileFlavor } from "@grammyjs/files";
-import { Bot, type Context } from "grammy";
+import { Bot, InlineKeyboard, type Context } from "grammy";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config/env.js";
 import type { Database } from "../db/client.js";
@@ -27,8 +27,10 @@ import {
   type PreprocessingSummary,
 } from "../domain/preprocessing/preprocessing-service.js";
 import { SearchService } from "../search/search-service.js";
+import { ReviewService } from "../domain/review/review-service.js";
 import { LocalStorage } from "../storage/local-storage.js";
 import {
+  formatInboxProposal,
   formatRecentMessage,
   formatProposal,
   formatSearchResult,
@@ -131,6 +133,9 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const embeddingService = new EmbeddingService(db, config);
   const imageAnalysisService = new ImageAnalysisService(db, config);
   const classificationService = new LlmClassificationService(db, config);
+  const reviewService = new ReviewService(db, { llmMaxInputChars: config.LLM_MAX_INPUT_CHARS });
+  const pendingCorrections = new Map<number, string>();
+  const pendingClarificationReplies = new Map<number, string>();
   const storage = new LocalStorage(config.STORAGE_ROOT);
   const attachmentService = new AttachmentService(
     db,
@@ -157,16 +162,15 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
 
   bot.command("start", async (ctx) => {
     await ctx.reply(
-      "Личный inbox работает. Присылай текст, ссылки, медиа, файлы или используй /search.",
+      "Личный inbox работает. Присылай текст, ссылки, медиа, файлы или используй /find.",
     );
   });
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
       [
-        "/search запрос - поиск по сохраненному",
-        "/find запрос - то же самое, что /search",
-        "/search 10 запрос - поиск с лимитом",
+        "/find запрос - поиск по сохраненному",
+        "/inbox - предложения на проверку",
         "/recent - последние сохраненные",
         "/recent 10 - последние сохраненные с лимитом",
         "/settings - текущие настройки бота",
@@ -338,6 +342,38 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     }
   });
 
+  bot.command("inbox", async (ctx) => {
+    const { limit } = parseLimitPrefix(ctx.match, 3, 10);
+    const proposals = await reviewService.pendingInbox(limit);
+    if (proposals.length === 0) {
+      await ctx.reply("Inbox пуст.");
+      return;
+    }
+    for (const proposal of proposals) {
+      const sent = await ctx.reply(formatInboxProposal(proposal), {
+        reply_markup: inboxKeyboard(proposal.id),
+      });
+      if (proposal.clarificationRequestId) {
+        pendingClarificationReplies.set(sent.message_id, proposal.clarificationRequestId);
+      }
+    }
+  });
+
+  bot.callbackQuery(/^inbox:(accept|correct|reject|ignore):([0-9a-f-]{36})$/, async (ctx) => {
+    const action = ctx.match[1] as "accept" | "correct" | "reject" | "ignore";
+    const recordId = ctx.match[2]!;
+    const telegramUserId = ctx.from.id;
+    if (action === "correct") {
+      pendingCorrections.set(telegramUserId, recordId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply("Отправь исправленный заголовок или описание reply-сообщением.");
+      return;
+    }
+    const changed = await reviewService.act(recordId, action, telegramUserId);
+    await ctx.answerCallbackQuery(changed ? "Готово" : "Уже обработано");
+    await ctx.editMessageText(changed ? "Предложение обработано." : "Предложение уже не активно.");
+  });
+
   async function searchCommand(ctx: BotContext, command: "/search" | "/find") {
     const { limit, rest: query } = parseLimitPrefix(
       typeof ctx.match === "string" ? ctx.match : "",
@@ -391,6 +427,34 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   async function saveIncoming(ctx: BotContext) {
     const message = ctx.editedMessage ?? ctx.message;
     if (!message) return;
+    if (ctx.message?.reply_to_message && ctx.from?.id) {
+      const pendingRecordId = pendingCorrections.get(ctx.from.id);
+      const correctionText = "text" in ctx.message ? ctx.message.text?.trim() : undefined;
+      if (pendingRecordId && correctionText) {
+        pendingCorrections.delete(ctx.from.id);
+        const changed = await reviewService.correctedAccept(
+          pendingRecordId,
+          correctionText,
+          ctx.from.id,
+        );
+        await ctx.reply(changed ? "Исправление принято." : "Предложение уже не активно.");
+        return;
+      }
+      const clarificationRequestId = pendingClarificationReplies.get(
+        ctx.message.reply_to_message.message_id,
+      );
+      if (clarificationRequestId && correctionText) {
+        pendingClarificationReplies.delete(ctx.message.reply_to_message.message_id);
+        const changed = await reviewService.answerClarification(
+          clarificationRequestId,
+          correctionText,
+          ctx.from.id,
+          ctx.message.message_id,
+        );
+        await ctx.reply(changed ? "Ответ сохранен. Источник отправлен на повторную классификацию." : "Вопрос уже не активен.");
+        return;
+      }
+    }
     const input = parseTelegramMessage(message);
     if (!input) return;
     const result = await messageService.saveTelegramMessage(input);
@@ -422,4 +486,13 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   });
 
   return bot;
+}
+
+function inboxKeyboard(recordId: string) {
+  return new InlineKeyboard()
+    .text("✅ Верно", `inbox:accept:${recordId}`)
+    .text("✏️ Исправить", `inbox:correct:${recordId}`)
+    .row()
+    .text("❌ Неверно", `inbox:reject:${recordId}`)
+    .text("🗑 Игнорировать", `inbox:ignore:${recordId}`);
 }

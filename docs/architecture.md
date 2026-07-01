@@ -82,6 +82,20 @@ The schema includes active extension points for:
 
 Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes. Classification results are proposals in derived/structured tables rather than direct mutations of source Telegram rows.
 
+## Phase 7 Review, Feedback, And Retrieval UX
+
+Phase 7 adds an explicit review lifecycle for structured proposals. `records`, `entities`, and `relations` carry a `status` column with `proposed`, `accepted`, `rejected`, and `superseded`. JSON metadata may mirror status for compatibility, but the database column is the lifecycle source of truth. Reclassification may update rebuildable `proposed` rows and supersede missing proposals for the same `(sourceKind, sourceId, provider, model, generationKey)`, but it must not overwrite accepted or manually corrected rows.
+
+Human review actions are append-only audit data in `review_actions`, including target ID, action, previous values, new values, Telegram user ID, and timestamp. Telegram `/inbox` exposes pending proposed records with source previews and inline accept/correct/reject/ignore actions. The correction flow accepts a reply message as a manual accepted title/description. Normal saves remain quiet.
+
+Clarification questions from validated classification output are stored in `clarification_requests` with `pending`, `answered`, `dismissed`, and `superseded` states. At most one pending question may exist per source. Proactive clarification messages are not sent by default; pending questions are surfaced through review UX. A Telegram reply to the `/inbox` message stores the answer on the clarification request, writes a review audit row, and reopens classification for that source with clarification context included in the input hash. Source Telegram messages remain unchanged.
+
+Auto-bundles now have `open`, `closed`, and `superseded` lifecycle states. Classification only targets closed auto-bundles after a short settling window. Stable group keys are based on durable source signals such as media group ID, reply root, forward source seed, or the initial text message in a text-to-attachment pair, so adding a message to an active series does not create a new logical bundle. Broad owner time-window bursts are disabled to avoid grouping unrelated messages.
+
+`/find` is the user-facing retrieval command. It performs transparent hybrid retrieval across source text, attachment names, deterministic text artifacts, OCR, transcripts, image descriptions, bundle context, and accepted structured records. It returns source-grounded results with match reasons rather than a generated answer.
+
+Manual evaluation uses `npm run evaluation -- export ...` to write proposed classification samples to JSON and `npm run evaluation -- import ...` to store reviewed annotations as audit feedback. This feedback path does not fine-tune models or mutate Telegram source rows.
+
 ## Phase 6 Automatic Worker And Bundles
 
 Phase 6 productizes the existing processing layers through a continuously running `worker` service in Docker Compose. The worker uses the same app image as the Telegram bot and runs:
@@ -109,7 +123,6 @@ Bundles are rebuildable derived groupings over source messages. The auto-bundle 
 - reply-linked messages when the replied-to source message is already known;
 - sequential forwarded messages from the same forward source within 10 minutes;
 - owner text followed by an attachment within 3 minutes;
-- owner message bursts within 5 minutes, capped at 10 messages.
 
 The first implementation only creates bundles with at least two messages and avoids assigning one message to multiple auto-bundles.
 

@@ -60,7 +60,7 @@ Worker startup logs include a structured `Pipeline worker startup summary` entry
 - batch size and idle interval;
 - OCR/ASR, embedding, and LLM provider configuration flags.
 
-Each worker loop logs `Pipeline worker loop completed` with bundle, preprocessing, media, embedding, image-analysis, and classification summaries. Provider-backed stages report a skipped reason when not configured.
+Each worker loop logs `Pipeline worker loop completed` with bundle, attachment retry, preprocessing, media, embedding, image-analysis, and classification summaries. Provider-backed stages report a skipped reason when not configured. The worker writes `worker_heartbeats` rows with last loop start, last success, last error, duration, and worker ID.
 
 ## Automatic Pipeline Worker
 
@@ -78,7 +78,11 @@ Tune worker cadence with:
 ```bash
 WORKER_BATCH_SIZE=25
 WORKER_IDLE_MS=15000
+WORKER_HEARTBEAT_MAX_AGE_MS=300000
+WORKER_ATTACHMENT_RETRY_INTERVAL_MS=900000
 ```
+
+The worker container sets `WORKER_HEALTHCHECK=true`, so `dist/app/healthcheck.js` fails when no successful worker cycle has been recorded within `WORKER_HEARTBEAT_MAX_AGE_MS`. The app container uses the same healthcheck script without the worker heartbeat requirement.
 
 Manual processing commands remain useful for diagnostics, but routine use should not require Telegram processing commands.
 
@@ -90,6 +94,25 @@ docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20
 ```
 
 The same retry path is available from Telegram through `/retry_attachments`.
+
+The continuous worker also retries due pending/failed attachments automatically no more often than `WORKER_ATTACHMENT_RETRY_INTERVAL_MS`.
+
+## Evaluation Export And Import
+
+Export proposed classification records for manual labeling:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/evaluation.js export classification-evaluation.json 100
+```
+
+Import reviewed annotations as audit feedback:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/evaluation.js import classification-evaluation.json
+```
+
+The import writes `review_actions` feedback rows. It does not fine-tune models, change model weights, or mutate source Telegram messages.
 
 ## Deterministic Preprocessing
 

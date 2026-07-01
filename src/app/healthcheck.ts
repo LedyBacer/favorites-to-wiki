@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { loadConfig } from "../config/env.js";
 import { createDatabase } from "../db/client.js";
+import { WorkerHeartbeatService } from "../domain/worker/worker-heartbeat-service.js";
 import { LocalStorage } from "../storage/local-storage.js";
 
 const config = loadConfig();
@@ -9,6 +10,11 @@ const database = createDatabase(config.DATABASE_URL);
 try {
   await database.db.execute(sql`select 1`);
   await new LocalStorage(config.STORAGE_ROOT).ensureReady();
+  if (config.WORKER_HEALTHCHECK) {
+    await new WorkerHeartbeatService(database.db).assertRecentSuccess(
+      config.WORKER_HEARTBEAT_MAX_AGE_MS,
+    );
+  }
   await database.close();
   process.exit(0);
 } catch (error) {

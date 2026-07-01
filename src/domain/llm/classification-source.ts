@@ -17,6 +17,7 @@ interface SourceRow extends Record<string, unknown> {
   message_type: string;
   message_text: string | null;
   normalized_text: unknown;
+  clarification_context: unknown;
   attachment_context: unknown;
 }
 
@@ -50,6 +51,20 @@ async function buildMessageClassificationSource(
         order by da.updated_at desc
         limit 1
       ) as normalized_text,
+      (
+        select coalesce(jsonb_agg(
+          jsonb_build_object(
+            'question', cr.question,
+            'answer', cr.answer,
+            'answeredAt', cr.answered_at
+          )
+          order by cr.answered_at asc
+        ), '[]'::jsonb)
+        from clarification_requests cr
+        where cr.source_kind = 'message'
+          and cr.source_id = m.id
+          and cr.status = 'answered'
+      ) as clarification_context,
       (
         select coalesce(jsonb_agg(
           jsonb_build_object(
@@ -89,6 +104,13 @@ async function buildMessageClassificationSource(
   const normalized = textFromContent(row.normalized_text);
   addPart(chunks, parts, "normalized_text", row.message_id, normalized);
   if (!normalized) addPart(chunks, parts, "message_text", row.message_id, row.message_text);
+  addPart(
+    chunks,
+    parts,
+    "clarification_context",
+    row.message_id,
+    clarificationContext(row.clarification_context),
+  );
 
   for (const attachment of attachmentContext(row.attachment_context)) {
     addPart(
@@ -162,6 +184,20 @@ async function buildBundleClassificationSource(
       (
         select coalesce(jsonb_agg(
           jsonb_build_object(
+            'question', cr.question,
+            'answer', cr.answer,
+            'answeredAt', cr.answered_at
+          )
+          order by cr.answered_at asc
+        ), '[]'::jsonb)
+        from clarification_requests cr
+        where cr.source_kind = 'bundle'
+          and cr.source_id = ${bundleId}
+          and cr.status = 'answered'
+      ) as clarification_context,
+      (
+        select coalesce(jsonb_agg(
+          jsonb_build_object(
             'attachmentId', a.id,
             'fileName', a.original_file_name,
             'mimeType', a.mime_type,
@@ -183,6 +219,7 @@ async function buildBundleClassificationSource(
     order by bm.position asc, m.telegram_date asc, m.telegram_message_id asc
   `);
   if (messages.rows.length === 0) return undefined;
+  const firstMessage = messages.rows[0]!;
 
   const chunks: string[] = [];
   const parts: ClassificationSource["parts"] = [];
@@ -192,6 +229,13 @@ async function buildBundleClassificationSource(
     "bundle_meta",
     bundleId,
     `bundle: ${bundle.rows[0].title ?? "untitled"}\nmetadata: ${JSON.stringify(bundle.rows[0].metadata)}`,
+  );
+  addPart(
+    chunks,
+    parts,
+    "clarification_context",
+    bundleId,
+    clarificationContext(firstMessage.clarification_context),
   );
 
   for (const row of messages.rows) {
@@ -325,6 +369,25 @@ function textFromContent(content: unknown) {
 function attachmentContext(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter(isAttachmentContext);
+}
+
+function clarificationContext(value: unknown) {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((item) => {
+      if (typeof item !== "object" || item === null) return "";
+      const record = item as {
+        question?: unknown;
+        answer?: unknown;
+        answeredAt?: unknown;
+      };
+      const question = typeof record.question === "string" ? record.question.trim() : "";
+      const answer = typeof record.answer === "string" ? record.answer.trim() : "";
+      if (!question || !answer) return "";
+      return [`clarification question: ${question}`, `clarification answer: ${answer}`].join("\n");
+    })
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function isAttachmentContext(value: unknown): value is {

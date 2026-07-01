@@ -4,15 +4,21 @@ import { createDatabase, type Database } from "../../src/db/client.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import {
   attachments,
+  bundleMessages,
+  bundles,
   derivedArtifacts,
   embeddings,
   messageVersions,
   processingJobs,
+  records,
 } from "../../src/db/schema.js";
+import { buildClassificationSource } from "../../src/domain/llm/classification-source.js";
+import { LlmClassificationService } from "../../src/domain/llm/llm-classification-service.js";
 import { MessageService } from "../../src/domain/messages/message-service.js";
 import type { SaveMessageInput } from "../../src/domain/messages/types.js";
 import { ProcessingJobService } from "../../src/domain/processing/processing-job-service.js";
 import { PreprocessingService } from "../../src/domain/preprocessing/preprocessing-service.js";
+import { ReviewService } from "../../src/domain/review/review-service.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -313,6 +319,189 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
     expect(references).toHaveLength(1);
   });
 
+  it("enqueues later stale bundles when the first bundle is already current", async () => {
+    const classification = classificationService(db);
+    const bundleIds: string[] = [];
+
+    for (const index of [0, 1, 2]) {
+      const first = await service.saveTelegramMessage(
+        messageInput({
+          telegramMessageId: 1100 + index * 10,
+          text: `bundle ${index} first`,
+        }),
+      );
+      const second = await service.saveTelegramMessage(
+        messageInput({
+          telegramMessageId: 1101 + index * 10,
+          text: `bundle ${index} second`,
+        }),
+      );
+      const inserted = await db
+        .insert(bundles)
+        .values({
+          title: `Bundle ${index}`,
+          status: "closed",
+          metadata: {
+            createdBy: "auto_bundle_service",
+            groupKey: `integration-${index}`,
+          },
+        })
+        .returning({ id: bundles.id });
+      const bundleId = inserted[0]!.id;
+      bundleIds.push(bundleId);
+      await db.insert(bundleMessages).values([
+        { bundleId, messageId: first.messageId, position: 0 },
+        { bundleId, messageId: second.messageId, position: 1 },
+      ]);
+    }
+
+    const currentSource = await buildClassificationSource(db, bundleIds[0]!, 20_000, "bundle");
+    await db.insert(derivedArtifacts).values({
+      sourceKind: "bundle",
+      sourceId: bundleIds[0]!,
+      artifactType: "llm_classification",
+      artifactKey: "ollama:test-llm",
+      contentHash: "sha256:classification",
+      content: { sourceContentHash: currentSource!.contentHash },
+    });
+    await db.insert(processingJobs).values({
+      type: "llm_classification",
+      subjectKind: "bundle",
+      subjectId: bundleIds[0]!,
+      status: "completed",
+      inputHash: currentSource!.contentHash,
+      generationKey: "phase7:ollama:test-llm:classification:v3",
+      payload: { integrationTest: true },
+      completedAt: new Date(),
+    });
+
+    const created = await classification.enqueueMissing(2);
+    const queued = await db
+      .select()
+      .from(processingJobs)
+      .where(sql`type = 'llm_classification' and subject_kind = 'bundle' and status = 'pending'`);
+
+    expect(created).toBe(2);
+    expect(queued.map((job) => job.subjectId).sort()).toEqual(bundleIds.slice(1).sort());
+  });
+
+  it("reconciles changed proposed record titles without leaving two active proposals", async () => {
+    const classification = classificationService(db);
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1200, text: "record title changes" }),
+    );
+    const classificationSource = proposalSource(source.messageId);
+
+    await persistProposal(classification, classificationSource, ["Old title"]);
+    await persistProposal(classification, classificationSource, ["New title"]);
+
+    const active = await db
+      .select()
+      .from(records)
+      .where(sql`status = 'proposed' and metadata->>'sourceId' = ${source.messageId}`);
+    expect(active).toHaveLength(1);
+    expect(active[0]?.title).toBe("New title");
+  });
+
+  it("supersedes removed proposed records on reclassification", async () => {
+    const classification = classificationService(db);
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1201, text: "record count shrinks" }),
+    );
+    const classificationSource = proposalSource(source.messageId);
+
+    await persistProposal(classification, classificationSource, ["One", "Two", "Three"]);
+    await persistProposal(classification, classificationSource, ["One"]);
+
+    const rows = await db
+      .select({ status: records.status })
+      .from(records)
+      .where(sql`metadata->>'sourceId' = ${source.messageId}`);
+    expect(rows.filter((row) => row.status === "proposed")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "superseded")).toHaveLength(2);
+  });
+
+  it("does not overwrite accepted records during proposal reconciliation", async () => {
+    const classification = classificationService(db);
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1202, text: "accepted record stays" }),
+    );
+    const classificationSource = proposalSource(source.messageId);
+
+    await persistProposal(classification, classificationSource, ["Accepted title"]);
+    await db
+      .update(records)
+      .set({ status: "accepted", title: "Manual accepted title" })
+      .where(sql`metadata->>'sourceId' = ${source.messageId}`);
+    await persistProposal(classification, classificationSource, ["Different model title"]);
+
+    const rows = await db
+      .select({ status: records.status, title: records.title })
+      .from(records)
+      .where(sql`metadata->>'sourceId' = ${source.messageId}`);
+    expect(rows).toContainEqual({ status: "accepted", title: "Manual accepted title" });
+  });
+
+  it("stores clarification answers separately and reopens classification", async () => {
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1203, text: "needs a clarification" }),
+    );
+    const inserted = await db.execute<{ id: string }>(sql`
+      insert into clarification_requests (
+        source_kind,
+        source_id,
+        provider,
+        model,
+        generation_key,
+        question,
+        question_hash,
+        status
+      )
+      values (
+        'message',
+        ${source.messageId},
+        'ollama',
+        'test-llm',
+        'phase7:ollama:test-llm:classification:v3',
+        'What is the project?',
+        'question-hash',
+        'pending'
+      )
+      returning id
+    `);
+
+    const review = new ReviewService(db, { llmMaxInputChars: 20_000 });
+    const changed = await review.answerClarification(
+      inserted.rows[0]!.id,
+      "This belongs to Project X.",
+      328430137,
+      777,
+    );
+
+    const request = await db.execute<{ status: string; answer: string | null }>(sql`
+      select status, answer
+      from clarification_requests
+      where id = ${inserted.rows[0]!.id}
+    `);
+    const job = await db.execute<{ status: string; input_hash: string | null }>(sql`
+      select status, input_hash
+      from processing_jobs
+      where type = 'llm_classification'
+        and subject_kind = 'message'
+        and subject_id = ${source.messageId}
+    `);
+    const classificationSource = await buildClassificationSource(db, source.messageId, 20_000);
+
+    expect(changed).toBe(true);
+    expect(request.rows[0]).toMatchObject({
+      status: "answered",
+      answer: "This belongs to Project X.",
+    });
+    expect(job.rows[0]?.status).toBe("pending");
+    expect(job.rows[0]?.input_hash).toBe(classificationSource?.contentHash);
+    expect(classificationSource?.text).toContain("clarification answer: This belongs to Project X.");
+  });
+
   async function countMessagesAndVersions() {
     const result = await db.execute<{ messages_count: string; versions_count: string }>(sql`
       select
@@ -325,6 +514,74 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
     };
   }
 });
+
+function classificationService(db: Database) {
+  return new LlmClassificationService(db, {
+    LLM_SERVICE_URL: undefined,
+    LLM_SERVICE_API_KEY: undefined,
+    LLM_MODEL: "test-llm",
+    LLM_SERVICE_TIMEOUT_MS: 1000,
+    LLM_MAX_INPUT_CHARS: 20_000,
+  });
+}
+
+function proposalSource(messageId: string) {
+  return {
+    sourceKind: "message" as const,
+    sourceId: messageId,
+    messageId,
+    text: "classification source",
+    contentHash: "sha256:classification-source",
+    parts: [{ kind: "message_text", sourceId: messageId, length: 21 }],
+  };
+}
+
+async function persistProposal(
+  service: LlmClassificationService,
+  source: ReturnType<typeof proposalSource>,
+  titles: string[],
+) {
+  await (
+    service as unknown as {
+      persistProposal: (
+        source: ReturnType<typeof proposalSource>,
+        output: {
+          summary: string;
+          intent: string;
+          confidence: number;
+          needsClarification: boolean;
+          clarificationQuestion: string | null;
+          retention: "keep";
+          records: Array<{
+            type: "note";
+            title: string;
+            body: string | null;
+            confidence: number;
+            tags: string[];
+          }>;
+          entities: [];
+          relations: [];
+        },
+      ) => Promise<unknown>;
+    }
+  ).persistProposal(source, {
+    summary: "summary",
+    intent: "capture",
+    confidence: 0.8,
+    needsClarification: false,
+    clarificationQuestion: null,
+    retention: "keep",
+    records: titles.map((title) => ({
+      type: "note",
+      title,
+      body: null,
+      confidence: 0.8,
+      tags: [],
+    })),
+    entities: [],
+    relations: [],
+  });
+}
 
 function messageInput(input: {
   telegramMessageId: number;

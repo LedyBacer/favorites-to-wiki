@@ -51,7 +51,7 @@ describe("auto bundle grouping", () => {
     ]);
   });
 
-  it("groups owner bursts only inside the conservative window", () => {
+  it("does not group unrelated owner messages only by time proximity", () => {
     const groups = buildAutoBundleGroups([
       row("a", 1),
       row("b", 2),
@@ -59,11 +59,22 @@ describe("auto bundle grouping", () => {
       row("far2", 30),
     ]);
 
-    expect(groups).toMatchObject([
-      { rule: "owner_time_window", messageIds: ["a", "b"] },
+    expect(groups).toEqual([]);
+  });
+
+  it("keeps a stable media group key when a message is appended", () => {
+    const first = buildAutoBundleGroups([
+      row("a", 1, { mediaGroupId: "album-1" }),
+      row("b", 2, { mediaGroupId: "album-1" }),
     ]);
-    expect(groups.some((group) => group.messageIds.includes("far"))).toBe(false);
-    expect(groups.some((group) => group.messageIds.includes("far2"))).toBe(false);
+    const appended = buildAutoBundleGroups([
+      row("a", 1, { mediaGroupId: "album-1" }),
+      row("b", 2, { mediaGroupId: "album-1" }),
+      row("c", 3, { mediaGroupId: "album-1" }),
+    ]);
+
+    expect(first[0]?.key).toBe(appended[0]?.key);
+    expect(appended[0]?.messageIds).toEqual(["a", "b", "c"]);
   });
 });
 

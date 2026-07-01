@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The project has a deployed Telegram-first personal inbox with local AI processing layers and an automatic processing worker. It has a TypeScript/Node.js application, grammY bot integration, PostgreSQL schema and migrations, Docker Compose deployment, local file storage, deterministic preprocessing, optional OCR/ASR, semantic embeddings, local LLM classification, image analysis, auto-bundles, tests, and project documentation.
+The project has a deployed Telegram-first personal inbox with local AI processing layers and an automatic processing worker. It has a TypeScript/Node.js application, grammY bot integration, PostgreSQL schema and migrations, Docker Compose deployment, local file storage, deterministic preprocessing, optional OCR/ASR, semantic embeddings, local LLM classification, image analysis, auto-bundles, tests, and project documentation. Phase 7 review/retrieval code is implemented locally and awaits deployment validation.
 
 The remote Docker host was also validated:
 
@@ -15,6 +15,7 @@ The remote Docker host was also validated:
 - real media/update smoke test passed: photos, documents, voice, video, and one edited text message were archived.
 - Phase 5/5.1 local AI smoke tests completed on production data with image descriptions, embedding reindexing, and proposed records.
 - Phase 6 automatic worker deployment completed on production data with auto-bundles, bundle classification, quiet bot acknowledgements, app/worker healthchecks, and integration tests.
+- Phase 7 local implementation adds explicit proposal status columns, review audit actions, `/inbox`, safer auto-bundle lifecycle, bundle classification enqueue pagination fixes, worker heartbeats, automatic attachment retry in the worker, hybrid `/find`, and evaluation export/import. It is not complete as a phase until committed, pushed, pulled on Proxmox, rebuilt, and healthchecked.
 
 Major committed work on `main`:
 
@@ -159,6 +160,35 @@ Why it matters:
 - deployment docs should keep secrets out of Git and logs.
 
 ## Next Actions
+
+### Phase 7 - Review, Feedback, And Retrieval UX
+
+Priority: highest.
+
+Status: locally implemented, not yet deployed.
+
+Scope:
+
+- Implemented locally: explicit `proposed`, `accepted`, `rejected`, and `superseded` status columns for structured proposals.
+- Implemented locally: `review_actions` audit table for Telegram review actions and evaluation feedback.
+- Implemented locally: `/inbox` command with inline accept/correct/reject/ignore callbacks guarded by the existing Telegram allowlist.
+- Implemented locally: manual correction flow through a reply after tapping `Исправить`.
+- Implemented locally: clarification requests are stored with explicit lifecycle, shown through `/inbox`, answered via Telegram reply, audited, and used to reopen classification with clarification context.
+- Implemented locally: proposal reconciliation for rebuildable proposed rows keyed by source, provider, model, and generation key; accepted rows are not overwritten by reclassification.
+- Implemented locally: auto-bundle lifecycle with `open`, `closed`, and `superseded`; classification targets only closed bundles after a short settling window.
+- Implemented locally: broad owner time-window burst bundling is disabled.
+- Implemented locally: bundle classification enqueue skips already-current completed bundles/messages so later bundles are not starved by the first page.
+- Implemented locally: worker heartbeat table and worker-only healthcheck freshness validation.
+- Implemented locally: automatic due attachment retry inside the continuous worker.
+- Implemented locally: `/find` as the main hybrid retrieval command across source text, file names, derived text artifacts, bundle context, and accepted records with transparent match reasons.
+- Implemented locally: evaluation JSON export/import CLI for manual review feedback.
+
+Remaining before phase completion:
+
+- Run PostgreSQL integration tests against an explicit `TEST_DATABASE_URL`.
+- Commit and push through Git.
+- Pull on the Proxmox deployment, rebuild/restart Docker, and verify app and worker healthchecks.
+- Smoke test `/inbox`, callback idempotency, manual correction, `/find`, worker heartbeat, and evaluation export/import against deployed data.
 
 ### Phase 6 - Productized Automatic Processing
 

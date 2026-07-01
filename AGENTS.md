@@ -70,9 +70,15 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Phase 5/5.1 entry points are `/classify`, `/proposals`, `/analyze_images`, `npm run classify:run`, `npm run images:analyze`, Docker `node dist/app/classify.js`, and Docker `node dist/app/image-analysis.js`.
 - Phase 5/5.1 was deployed to the Proxmox Docker host through Git, passed Docker app healthcheck, passed PostgreSQL integration tests, wrote 8 production `image_description` artifacts, reindexed 28 embeddings with 8 changed vectors, and wrote 29 production `llm_classification` artifacts plus 37 proposed records with no remaining failed Phase 5 jobs.
 - Phase 6 productization is deployed: Docker Compose includes a continuous `worker` service from the app image. The worker automatically runs deterministic preprocessing, configured OCR/ASR/image analysis, configured embeddings, and configured LLM classification.
-- Auto bundles are rebuildable derived groupings. They currently cover Telegram media groups, reply-linked messages, sequential forwards from the same source, text immediately followed by an attachment, and conservative owner time-window bursts. Source Telegram rows remain unchanged.
+- Auto bundles are rebuildable derived groupings. They currently cover Telegram media groups, reply-linked messages, sequential forwards from the same source, and text immediately followed by an attachment. Source Telegram rows remain unchanged.
 - Classification can target bundles, using chronological message context, forward metadata, OCR/transcripts/image descriptions, and a small number of already indexed semantic neighbors when available.
 - Phase 6 was deployed to the Proxmox Docker host through Git, passed Docker app and worker healthchecks, passed PostgreSQL integration tests in a disposable database, created 6 production auto-bundles covering 16 messages, wrote 6 bundle `llm_classification` artifacts, completed 29 message classification jobs, and reached an idle worker loop with no Phase 6 job failures.
+- Phase 7 is implemented locally but not yet deployed. It adds explicit proposal lifecycle columns (`proposed`, `accepted`, `rejected`, `superseded`), `review_actions`, `clarification_requests`, `/inbox`, hybrid `/find`, worker heartbeats, automatic attachment retry in the worker, safer auto-bundle lifecycle (`open`, `closed`, `superseded`), and evaluation export/import.
+- Phase 7 disables broad owner time-window burst bundling. Auto bundles now cover media groups, reply-linked messages, sequential forwards, and text→attachment groupings with stable group keys and a short settling window before classification.
+- Reclassification may update or supersede only rebuildable `proposed` rows for the same source/provider/model/generation key. It must not overwrite accepted or manually corrected records.
+- `/find` is the normal user-facing search command. `/search`, `/semantic`, and `/proposals` remain available as hidden technical/admin commands.
+- Worker healthchecks use `worker_heartbeats` only when `WORKER_HEALTHCHECK=true`; the Docker worker service sets this flag. The app healthcheck continues to verify PostgreSQL and storage only.
+- Evaluation feedback is imported as audit data in `review_actions`; it does not fine-tune models, change model weights, or mutate source Telegram rows.
 
 ## Maintenance Rule
 

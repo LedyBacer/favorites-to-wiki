@@ -17,6 +17,7 @@ import {
 export const LLM_CLASSIFICATION_JOB = "llm_classification";
 export const LLM_CLASSIFICATION_JOB_TYPES = [LLM_CLASSIFICATION_JOB] as const;
 export const LLM_PROVIDER = "ollama";
+export const LLM_CLASSIFICATION_PROCESSOR_VERSION = 3;
 
 export interface LlmClassificationSummary {
   jobsCreated: number;
@@ -63,10 +64,28 @@ export class LlmClassificationService {
       await this.reopenExistingJobs(limit);
     }
 
+    const generationKey = this.generationKey();
+    const artifactKey = this.artifactKey();
     const bundleRows = await this.db.execute<{ id: string }>(sql`
       select b.id
       from bundles b
       where b.metadata->>'createdBy' = 'auto_bundle_service'
+        and b.status = 'closed'
+        and not exists (
+          select 1
+          from processing_jobs job
+          join derived_artifacts da
+            on da.source_kind = 'bundle'
+            and da.source_id = b.id
+            and da.artifact_type = 'llm_classification'
+            and da.artifact_key = ${artifactKey}
+          where job.type = ${LLM_CLASSIFICATION_JOB}
+            and job.subject_kind = 'bundle'
+            and job.subject_id = b.id
+            and job.generation_key = ${generationKey}
+            and job.status = 'completed'
+            and job.input_hash = da.content->>'sourceContentHash'
+        )
       order by b.created_at asc
       limit ${limit}
     `);
@@ -84,11 +103,11 @@ export class LlmClassificationService {
         type: LLM_CLASSIFICATION_JOB,
         subjectKind: "bundle",
         subjectId: row.id,
-        generationKey: `phase6:${LLM_PROVIDER}:${this.config.LLM_MODEL}:classification:v2`,
+        generationKey,
         inputHash: source.contentHash,
         payload: {
-          phase: 6,
-          processorVersion: 2,
+          phase: 7,
+          processorVersion: LLM_CLASSIFICATION_PROCESSOR_VERSION,
           provider: LLM_PROVIDER,
           model: this.config.LLM_MODEL,
           sourceKind: "bundle",
@@ -98,7 +117,7 @@ export class LlmClassificationService {
       if (changed) created += 1;
     }
 
-    const remaining = Math.max(0, limit - created);
+    const remaining = Math.max(0, limit - bundleRows.rows.length);
     if (remaining === 0) return created;
 
     const result = await this.db.execute<{ id: string }>(sql`
@@ -129,6 +148,21 @@ export class LlmClassificationService {
             where a.message_id = messages.id
           )
         )
+        and not exists (
+          select 1
+          from processing_jobs job
+          join derived_artifacts da
+            on da.source_kind = 'message'
+            and da.source_id = messages.id
+            and da.artifact_type = 'llm_classification'
+            and da.artifact_key = ${artifactKey}
+          where job.type = ${LLM_CLASSIFICATION_JOB}
+            and job.subject_kind = 'message'
+            and job.subject_id = messages.id
+            and job.generation_key = ${generationKey}
+            and job.status = 'completed'
+            and job.input_hash = da.content->>'sourceContentHash'
+        )
       order by messages.telegram_date asc, messages.created_at asc
       limit ${remaining}
     `);
@@ -144,11 +178,11 @@ export class LlmClassificationService {
         type: LLM_CLASSIFICATION_JOB,
         subjectKind: "message",
         subjectId: row.id,
-        generationKey: `phase6:${LLM_PROVIDER}:${this.config.LLM_MODEL}:classification:v2`,
+        generationKey,
         inputHash: source.contentHash,
         payload: {
-          phase: 6,
-          processorVersion: 2,
+          phase: 7,
+          processorVersion: LLM_CLASSIFICATION_PROCESSOR_VERSION,
           provider: LLM_PROVIDER,
           model: this.config.LLM_MODEL,
           sourceKind: "message",
@@ -184,7 +218,6 @@ export class LlmClassificationService {
         summary.jobsFailed += 1;
       }
     }
-
     return summary;
   }
 
@@ -213,9 +246,9 @@ export class LlmClassificationService {
         (select count(*) from processing_jobs where type = ${LLM_CLASSIFICATION_JOB} and status = 'running') as running_count,
         (select count(*) from processing_jobs where type = ${LLM_CLASSIFICATION_JOB} and status = 'completed') as completed_count,
         (select count(*) from processing_jobs where type = ${LLM_CLASSIFICATION_JOB} and status = 'failed') as failed_count,
-        (select count(*) from records where metadata->>'status' = 'proposed') as record_count,
-        (select count(*) from entities where metadata->>'status' = 'proposed') as entity_count,
-        (select count(*) from relations where metadata->>'status' = 'proposed') as relation_count
+        (select count(*) from records where status = 'proposed') as record_count,
+        (select count(*) from entities where status = 'proposed') as entity_count,
+        (select count(*) from relations where status = 'proposed') as relation_count
     `);
     return result.rows[0]!;
   }
@@ -232,7 +265,7 @@ export class LlmClassificationService {
     }>(sql`
       select id, type, title, body, source_message_id, created_at
       from records
-      where metadata->>'status' = 'proposed'
+      where status = 'proposed'
       order by updated_at desc, created_at desc
       limit ${safeLimit}
     `);
@@ -279,9 +312,9 @@ export class LlmClassificationService {
         output: result.value,
       },
       metadata: {
-        phase: 6,
+        phase: 7,
         processor: "llm_classification_service",
-        processorVersion: 2,
+        processorVersion: LLM_CLASSIFICATION_PROCESSOR_VERSION,
         inputParts: source.parts,
         rawAvailable: result.raw !== undefined,
       },
@@ -294,11 +327,13 @@ export class LlmClassificationService {
   private async persistProposal(source: ClassificationSource, output: ClassificationOutput) {
     const recordIds: string[] = [];
     const modelKey = `${LLM_PROVIDER}:${this.config.LLM_MODEL}`;
+    const generationKey = this.generationKey();
     const baseMetadata = {
       status: "proposed",
-      phase: 6,
+      phase: 7,
       provider: LLM_PROVIDER,
       model: this.config.LLM_MODEL,
+      generationKey,
       sourceKind: source.sourceKind,
       sourceId: source.sourceId,
       sourceContentHash: source.contentHash,
@@ -315,16 +350,18 @@ export class LlmClassificationService {
         "record",
         source.sourceId,
         modelKey,
-        `${index}:${record.type}:${record.title}`,
+        `${generationKey}:${index}`,
       );
       const result = await this.db.execute<{ id: string }>(sql`
-        insert into records (proposal_key, type, title, body, source_message_id, metadata, updated_at)
+        insert into records (proposal_key, type, title, body, status, source_message_id, source_bundle_id, metadata, updated_at)
         values (
           ${proposalKey},
           ${record.type}::record_type,
           ${record.title},
           ${record.body},
+          'proposed',
           ${source.messageId},
+          ${source.sourceKind === "bundle" ? source.sourceId : null},
           ${JSON.stringify({ ...baseMetadata, confidence: record.confidence, tags: record.tags })}::jsonb,
           now()
         )
@@ -333,12 +370,15 @@ export class LlmClassificationService {
           type = excluded.type,
           title = excluded.title,
           body = excluded.body,
+          status = case when records.status = 'proposed' then excluded.status else records.status end,
           source_message_id = excluded.source_message_id,
-          metadata = excluded.metadata,
+          source_bundle_id = excluded.source_bundle_id,
+          metadata = case when records.status = 'proposed' then excluded.metadata else records.metadata end,
           updated_at = now()
+        where records.status = 'proposed'
         returning id
       `);
-      recordIds.push(result.rows[0]!.id);
+      if (result.rows[0]) recordIds.push(result.rows[0].id);
     }
 
     const entityByName = new Map<string, string>();
@@ -349,24 +389,27 @@ export class LlmClassificationService {
         "entity",
         source.sourceId,
         modelKey,
-        `${entity.type}:${normalizedName}`,
+        `${generationKey}:${entity.type}:${normalizedName}`,
       );
       const result = await this.db.execute<{ id: string }>(sql`
-        insert into entities (proposal_key, type, name, metadata)
+        insert into entities (proposal_key, type, name, status, metadata)
         values (
           ${proposalKey},
           ${entity.type},
           ${entity.name},
+          'proposed',
           ${JSON.stringify({ ...baseMetadata, confidence: entity.confidence })}::jsonb
         )
         on conflict (proposal_key)
         do update set
           type = excluded.type,
           name = excluded.name,
-          metadata = excluded.metadata
+          status = case when entities.status = 'proposed' then excluded.status else entities.status end,
+          metadata = case when entities.status = 'proposed' then excluded.metadata else entities.metadata end
+        where entities.status = 'proposed'
         returning id
       `);
-      entityByName.set(normalizedName, result.rows[0]!.id);
+      if (result.rows[0]) entityByName.set(normalizedName, result.rows[0].id);
     }
 
     let relationsWritten = 0;
@@ -378,10 +421,10 @@ export class LlmClassificationService {
         "relation",
         source.sourceId,
         modelKey,
-        `${relation.fromRecordIndex}:${relation.type}:${relation.toEntityName}`,
+        `${generationKey}:${relation.fromRecordIndex}:${relation.type}:${relation.toEntityName}`,
       );
       await this.db.execute(sql`
-        insert into relations (proposal_key, from_kind, from_id, to_kind, to_id, type, metadata)
+        insert into relations (proposal_key, from_kind, from_id, to_kind, to_id, type, status, metadata)
         values (
           ${proposalKey},
           'record',
@@ -389,6 +432,7 @@ export class LlmClassificationService {
           'entity',
           ${entityId},
           ${relation.type},
+          'proposed',
           ${JSON.stringify({ ...baseMetadata, confidence: relation.confidence })}::jsonb
         )
         on conflict (proposal_key)
@@ -398,10 +442,15 @@ export class LlmClassificationService {
           to_kind = excluded.to_kind,
           to_id = excluded.to_id,
           type = excluded.type,
-          metadata = excluded.metadata
+          status = case when relations.status = 'proposed' then excluded.status else relations.status end,
+          metadata = case when relations.status = 'proposed' then excluded.metadata else relations.metadata end
+        where relations.status = 'proposed'
       `);
       relationsWritten += 1;
     }
+
+    await this.supersedeMissingProposals(source, generationKey, recordIds, [...entityByName.values()]);
+    await this.syncClarificationRequest(source, output, generationKey);
 
     return {
       records: recordIds.length,
@@ -412,14 +461,14 @@ export class LlmClassificationService {
 
   private async reopenExistingJobs(limit: number) {
     const result = await this.db.execute<{ id: string }>(sql`
-      select messages.id
-      from messages
-      join processing_jobs job
-        on job.type = ${LLM_CLASSIFICATION_JOB}
-        and job.subject_kind = 'message'
-        and job.subject_id = messages.id
+      select job.subject_id as id
+      from processing_jobs job
+      left join messages on messages.id = job.subject_id and job.subject_kind = 'message'
+      left join bundles on bundles.id = job.subject_id and job.subject_kind = 'bundle'
       where job.status in ('completed', 'failed')
-      order by messages.telegram_date asc, messages.created_at asc
+        and job.type = ${LLM_CLASSIFICATION_JOB}
+        and job.subject_kind in ('message', 'bundle')
+      order by coalesce(messages.telegram_date, bundles.created_at) asc
       limit ${limit}
     `);
     if (result.rows.length === 0) return;
@@ -436,7 +485,7 @@ export class LlmClassificationService {
         completed_at = null,
         updated_at = now()
       where type = ${LLM_CLASSIFICATION_JOB}
-        and subject_kind = 'message'
+        and subject_kind in ('message', 'bundle')
         and subject_id in (${sql.join(
           result.rows.map((row) => sql`${row.id}`),
           sql`, `,
@@ -447,6 +496,154 @@ export class LlmClassificationService {
   private nextRetryAt(attempts: number) {
     const delayMinutes = Math.min(24 * 60, 5 * 2 ** Math.max(0, attempts - 1));
     return new Date(Date.now() + delayMinutes * 60_000);
+  }
+
+  private generationKey() {
+    return `phase7:${LLM_PROVIDER}:${this.config.LLM_MODEL}:classification:v${LLM_CLASSIFICATION_PROCESSOR_VERSION}`;
+  }
+
+  private artifactKey() {
+    return `${LLM_PROVIDER}:${this.config.LLM_MODEL}`;
+  }
+
+  private async supersedeMissingProposals(
+    source: ClassificationSource,
+    generationKey: string,
+    activeRecordIds: string[],
+    activeEntityIds: string[],
+  ) {
+    const sourceFilter = sql`
+      metadata->>'sourceKind' = ${source.sourceKind}
+      and metadata->>'sourceId' = ${source.sourceId}
+      and metadata->>'provider' = ${LLM_PROVIDER}
+      and metadata->>'model' = ${this.config.LLM_MODEL}
+      and metadata->>'generationKey' = ${generationKey}
+      and status = 'proposed'
+    `;
+    if (activeRecordIds.length > 0) {
+      await this.db.execute(sql`
+        update records
+        set status = 'superseded',
+            metadata = metadata || jsonb_build_object('status', 'superseded', 'supersededAt', now()),
+            updated_at = now()
+        where ${sourceFilter}
+          and not (id in (${sql.join(activeRecordIds.map((id) => sql`${id}`), sql`, `)}))
+      `);
+    } else {
+      await this.db.execute(sql`
+        update records
+        set status = 'superseded',
+            metadata = metadata || jsonb_build_object('status', 'superseded', 'supersededAt', now()),
+            updated_at = now()
+        where ${sourceFilter}
+      `);
+    }
+
+    if (activeEntityIds.length > 0) {
+      await this.db.execute(sql`
+        update entities
+        set status = 'superseded',
+            metadata = metadata || jsonb_build_object('status', 'superseded', 'supersededAt', now())
+        where ${sourceFilter}
+          and not (id in (${sql.join(activeEntityIds.map((id) => sql`${id}`), sql`, `)}))
+      `);
+    } else {
+      await this.db.execute(sql`
+        update entities
+        set status = 'superseded',
+            metadata = metadata || jsonb_build_object('status', 'superseded', 'supersededAt', now())
+        where ${sourceFilter}
+      `);
+    }
+
+    await this.db.execute(sql`
+      update relations
+      set status = 'superseded',
+          metadata = metadata || jsonb_build_object('status', 'superseded', 'supersededAt', now())
+      where ${sourceFilter}
+        and (
+          from_id not in (select id from records where status = 'proposed')
+          or to_id not in (select id from entities where status = 'proposed')
+        )
+    `);
+  }
+
+  private async syncClarificationRequest(
+    source: ClassificationSource,
+    output: ClassificationOutput,
+    generationKey: string,
+  ) {
+    if (!output.needsClarification || !output.clarificationQuestion?.trim()) {
+      await this.db.execute(sql`
+        update clarification_requests
+        set status = 'superseded',
+            updated_at = now()
+        where source_kind = ${source.sourceKind}
+          and source_id = ${source.sourceId}
+          and provider = ${LLM_PROVIDER}
+          and model = ${this.config.LLM_MODEL}
+          and generation_key = ${generationKey}
+          and status = 'pending'
+      `);
+      return;
+    }
+
+    const question = output.clarificationQuestion.trim();
+    const questionHash = createHash("sha256").update(question.toLowerCase()).digest("hex");
+    await this.db.execute(sql`
+      update clarification_requests
+      set question = ${question},
+          question_hash = ${questionHash},
+          metadata = metadata || ${JSON.stringify({ sourceContentHash: source.contentHash })}::jsonb,
+          updated_at = now()
+      where source_kind = ${source.sourceKind}
+        and source_id = ${source.sourceId}
+        and status = 'pending'
+        and question_hash is distinct from ${questionHash}
+    `);
+
+    await this.db.execute(sql`
+      insert into clarification_requests (
+        source_kind,
+        source_id,
+        provider,
+        model,
+        generation_key,
+        question,
+        question_hash,
+        status,
+        metadata,
+        updated_at
+      )
+      select
+        ${source.sourceKind},
+        ${source.sourceId},
+        ${LLM_PROVIDER},
+        ${this.config.LLM_MODEL},
+        ${generationKey},
+        ${question},
+        ${questionHash},
+        'pending',
+        ${JSON.stringify({ sourceContentHash: source.contentHash })}::jsonb,
+        now()
+      where not exists (
+          select 1
+          from clarification_requests
+          where source_kind = ${source.sourceKind}
+            and source_id = ${source.sourceId}
+            and status = 'pending'
+        )
+        and not exists (
+          select 1
+          from clarification_requests
+          where source_kind = ${source.sourceKind}
+            and source_id = ${source.sourceId}
+            and provider = ${LLM_PROVIDER}
+            and model = ${this.config.LLM_MODEL}
+            and generation_key = ${generationKey}
+            and question_hash = ${questionHash}
+        )
+    `);
   }
 }
 

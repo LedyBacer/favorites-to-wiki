@@ -60,6 +60,26 @@ export const processingJobStatus = pgEnum("processing_job_status", [
   "failed",
 ]);
 
+export const reviewStatus = pgEnum("review_status", [
+  "proposed",
+  "accepted",
+  "rejected",
+  "superseded",
+]);
+
+export const autoBundleStatus = pgEnum("auto_bundle_status", [
+  "open",
+  "closed",
+  "superseded",
+]);
+
+export const clarificationStatus = pgEnum("clarification_status", [
+  "pending",
+  "answered",
+  "dismissed",
+  "superseded",
+]);
+
 export const derivedArtifactType = pgEnum("derived_artifact_type", [
   "normalized_text",
   "extracted_metadata",
@@ -175,6 +195,8 @@ export const attachments = pgTable(
 export const bundles = pgTable("bundles", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title"),
+  status: autoBundleStatus("status").notNull().default("closed"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -207,7 +229,11 @@ export const records = pgTable(
     type: recordType("type").notNull().default("unknown"),
     title: text("title"),
     body: text("body"),
+    status: reviewStatus("status").notNull().default("proposed"),
     sourceMessageId: uuid("source_message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    sourceBundleId: uuid("source_bundle_id").references(() => bundles.id, {
       onDelete: "set null",
     }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
@@ -226,6 +252,7 @@ export const entities = pgTable(
     proposalKey: text("proposal_key"),
     type: text("type").notNull(),
     name: text("name").notNull(),
+    status: reviewStatus("status").notNull().default("proposed"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -244,6 +271,7 @@ export const graphRelations = pgTable(
     toKind: text("to_kind").notNull(),
     toId: uuid("to_id").notNull(),
     type: text("type").notNull(),
+    status: reviewStatus("status").notNull().default("proposed"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -337,6 +365,62 @@ export const embeddings = pgTable(
   }),
 );
 
+export const reviewActions = pgTable(
+  "review_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetKind: text("target_kind").notNull(),
+    targetId: uuid("target_id").notNull(),
+    action: text("action").notNull(),
+    previousValues: jsonb("previous_values").$type<Record<string, unknown>>().notNull().default({}),
+    newValues: jsonb("new_values").$type<Record<string, unknown>>().notNull().default({}),
+    telegramUserId: bigint("telegram_user_id", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    targetIdx: index("review_actions_target_idx").on(
+      table.targetKind,
+      table.targetId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const clarificationRequests = pgTable(
+  "clarification_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceKind: text("source_kind").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    generationKey: text("generation_key").notNull(),
+    question: text("question").notNull(),
+    questionHash: text("question_hash").notNull(),
+    status: clarificationStatus("status").notNull().default("pending"),
+    answer: text("answer"),
+    answerTelegramMessageId: bigint("answer_telegram_message_id", { mode: "number" }),
+    answeredByTelegramUserId: bigint("answered_by_telegram_user_id", { mode: "number" }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceIdx: index("clarification_requests_source_idx").on(table.sourceKind, table.sourceId),
+  }),
+);
+
+export const workerHeartbeats = pgTable("worker_heartbeats", {
+  workerId: text("worker_id").primaryKey(),
+  lastCycleStartedAt: timestamp("last_cycle_started_at", { withTimezone: true }),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  lastDurationMs: integer("last_duration_ms"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const messagesRelations = drizzleRelations(messages, ({ many, one }) => ({
   versions: many(messageVersions),
   attachments: many(attachments),
@@ -378,3 +462,9 @@ export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;
 export type GraphRelation = typeof graphRelations.$inferSelect;
 export type NewGraphRelation = typeof graphRelations.$inferInsert;
+export type ReviewAction = typeof reviewActions.$inferSelect;
+export type NewReviewAction = typeof reviewActions.$inferInsert;
+export type ClarificationRequest = typeof clarificationRequests.$inferSelect;
+export type NewClarificationRequest = typeof clarificationRequests.$inferInsert;
+export type WorkerHeartbeat = typeof workerHeartbeats.$inferSelect;
+export type NewWorkerHeartbeat = typeof workerHeartbeats.$inferInsert;

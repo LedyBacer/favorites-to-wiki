@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import type { AppConfig } from "../../config/env.js";
 import type { Database } from "../../db/client.js";
+import type { AttachmentService } from "../attachments/attachment-service.js";
 import { BundleService } from "../bundles/bundle-service.js";
 import { EmbeddingService } from "../embeddings/embedding-service.js";
 import { ImageAnalysisService } from "../llm/image-analysis-service.js";
@@ -23,11 +24,13 @@ export class PipelineOrchestrator {
   private readonly embeddings: EmbeddingService;
   private readonly imageAnalysis: ImageAnalysisService;
   private readonly classification: LlmClassificationService;
+  private lastAttachmentRetryAt = 0;
 
   constructor(
     db: Database,
     private readonly config: AppConfig,
     private readonly logger: Logger,
+    private readonly attachmentService?: AttachmentService,
   ) {
     this.bundles = new BundleService(db);
     this.preprocessing = new PreprocessingService(db);
@@ -41,6 +44,7 @@ export class PipelineOrchestrator {
     const mediaMode = this.mediaMode();
     const summary = {
       bundles: await this.bundles.rebuildAutoBundles(),
+      attachmentRetry: await this.maybeRetryAttachments(options.batchSize),
       preprocessing: await this.preprocessing.enqueueAndProcess(
         options.workerId,
         options.batchSize,
@@ -68,6 +72,16 @@ export class PipelineOrchestrator {
     if (this.config.OCR_SERVICE_URL) return "ocr";
     if (this.config.ASR_SERVICE_URL) return "asr";
     return undefined;
+  }
+
+  private async maybeRetryAttachments(limit: number) {
+    if (!this.attachmentService) return skippedSummary("attachment_service_not_configured");
+    const now = Date.now();
+    if (now - this.lastAttachmentRetryAt < this.config.WORKER_ATTACHMENT_RETRY_INTERVAL_MS) {
+      return skippedSummary("attachment_retry_interval_not_elapsed");
+    }
+    this.lastAttachmentRetryAt = now;
+    return this.attachmentService.retryFailedAttachments(limit);
   }
 }
 

@@ -31,6 +31,8 @@ Edit `.env`:
 - `LLM_SERVICE_URL` - optional Ollama-compatible chat/vision API base URL.
 - `LLM_MODEL` - local structured classification model name.
 - `LLM_VISION_MODEL` - local vision model name for image descriptions.
+- `WORKER_HEARTBEAT_MAX_AGE_MS` - maximum age for a successful worker loop before the worker healthcheck fails.
+- `WORKER_ATTACHMENT_RETRY_INTERVAL_MS` - minimum interval between automatic attachment retry batches in the worker.
 
 Start PostgreSQL:
 
@@ -62,7 +64,7 @@ PostgreSQL data is stored in the `postgres_data` volume. Telegram files are stor
 
 `docker-compose.yml` overrides `DATABASE_URL` for the app container to use the `postgres` service hostname. Keep `.env` with `localhost` when running the bot directly on the host.
 
-Docker Compose starts `app`, `worker`, and `postgres` by default. The `worker` service runs automatic preprocessing, configured OCR/ASR, configured image analysis, configured embeddings, and configured LLM classification. Manual processing commands remain available for operations, but daily use should not require them.
+Docker Compose starts `app`, `worker`, and `postgres` by default. The `worker` service runs automatic attachment retries, preprocessing, configured OCR/ASR, configured image analysis, configured embeddings, and configured LLM classification. Manual processing commands remain available for operations, but daily use should not require them.
 
 Optional OCR and ASR services are behind Docker Compose profiles and are not built or started by the normal app deployment:
 
@@ -145,7 +147,7 @@ npm run classify:run -- 20
 docker compose run --rm --entrypoint node app dist/app/classify.js 20
 ```
 
-Classification output is validated by the app and stored as proposed `records`, `entities`, and `relations` with `metadata.status = "proposed"` plus a rebuildable `derived_artifacts.llm_classification` audit row. The model service never writes to PostgreSQL directly.
+Classification output is validated by the app and stored as proposed `records`, `entities`, and `relations` with explicit review status columns plus a rebuildable `derived_artifacts.llm_classification` audit row. The model service never writes to PostgreSQL directly and cannot overwrite accepted review data.
 
 ## Telegram Bot Setup
 
@@ -160,8 +162,8 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 
 User commands shown by `/help`:
 
-- `/search query` - PostgreSQL full-text search over message text/captions and file names.
-- `/find query` - alias for `/search`.
+- `/find query` - hybrid search over source text, file names, derived OCR/transcripts/image descriptions, bundle context, embeddings where available, and accepted records.
+- `/inbox` - review pending proposed records with inline accept/correct/reject/ignore actions. When an item contains a clarification question, reply to that `/inbox` message to save the answer and reclassify the source.
 - `/recent` - last saved items.
 - `/settings` - current bot/provider settings.
 - `/help` - command summary.
@@ -171,6 +173,7 @@ Owner-only operational commands are still available but hidden from normal help:
 - `/status` - PostgreSQL, storage, processing queues, bundles, embeddings, and proposal stats.
 - `/retry_attachments` - retry failed or pending attachment downloads that are due.
 - `/preprocess`, `/process_media`, `/analyze_images`, `/embed`, `/classify` - manual processing batches.
+- `/search query` - technical full-text search entry point; `/find` is the normal user command.
 - `/semantic query` - semantic search over indexed embeddings.
 - `/proposals` - show recent proposed records.
 
@@ -189,6 +192,8 @@ npm run media:process
 npm run embeddings:run
 npm run images:analyze
 npm run classify:run
+npm run evaluation -- export classification-evaluation.json 100
+npm run evaluation -- import classification-evaluation.json
 ```
 
 In Docker Compose production, run the compiled retry entry point inside the app image:

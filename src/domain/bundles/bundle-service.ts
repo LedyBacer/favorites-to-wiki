@@ -2,10 +2,9 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { Database } from "../../db/client.js";
 
-const OWNER_WINDOW_MS = 5 * 60 * 1000;
 const FORWARD_WINDOW_MS = 10 * 60 * 1000;
 const TEXT_ATTACHMENT_WINDOW_MS = 3 * 60 * 1000;
-const MAX_OWNER_BURST_SIZE = 10;
+const BUNDLE_SETTLING_WINDOW_MS = 60 * 1000;
 
 export interface BundleCandidateRow extends Record<string, unknown> {
   id: string;
@@ -34,6 +33,7 @@ export interface AutoBundleGroup {
   rule: string;
   title: string;
   messageIds: string[];
+  status: "open" | "closed";
 }
 
 export class BundleService {
@@ -49,6 +49,7 @@ export class BundleService {
         select id
         from bundles
         where metadata->>'createdBy' = 'auto_bundle_service'
+          and status in ('open', 'closed')
       )
     `);
 
@@ -70,8 +71,12 @@ export class BundleService {
       .map((group) => group.key);
     if (activeKeys.length > 0) {
       await this.db.execute(sql`
-        delete from bundles
+        update bundles
+        set status = 'superseded',
+            metadata = metadata || jsonb_build_object('supersededAt', now()),
+            updated_at = now()
         where metadata->>'createdBy' = 'auto_bundle_service'
+          and status in ('open', 'closed')
           and not (metadata->>'groupKey' in (${sql.join(
             activeKeys.map((key) => sql`${key}`),
             sql`, `,
@@ -79,10 +84,24 @@ export class BundleService {
       `);
     } else {
       await this.db.execute(sql`
-        delete from bundles
+        update bundles
+        set status = 'superseded',
+            metadata = metadata || jsonb_build_object('supersededAt', now()),
+            updated_at = now()
         where metadata->>'createdBy' = 'auto_bundle_service'
+          and status in ('open', 'closed')
       `);
     }
+
+    await this.db.execute(sql`
+      delete from bundle_messages
+      where bundle_id in (
+        select id
+        from bundles
+        where metadata->>'createdBy' = 'auto_bundle_service'
+          and status = 'superseded'
+      )
+    `);
 
     return { bundlesCreated: groups.filter((group) => group.messageIds.length > 1).length, messagesGrouped };
   }
@@ -92,12 +111,14 @@ export class BundleService {
     rule: string;
     title: string;
     messageIds: string[];
+    status: "open" | "closed";
   }) {
     const metadata = {
       createdBy: "auto_bundle_service",
       groupKey: group.key,
       rule: group.rule,
       messageCount: group.messageIds.length,
+      lifecycle: group.status,
     };
     const existing = await this.db.execute<{ id: string }>(sql`
       select id
@@ -111,6 +132,12 @@ export class BundleService {
         update bundles
         set
           title = ${group.title},
+          status = ${group.status}::auto_bundle_status,
+          closed_at = case
+            when ${group.status} = 'closed' and closed_at is null then now()
+            when ${group.status} = 'open' then null
+            else closed_at
+          end,
           metadata = ${JSON.stringify(metadata)}::jsonb,
           updated_at = now()
         where id = ${existing.rows[0].id}
@@ -119,8 +146,14 @@ export class BundleService {
     }
 
     const inserted = await this.db.execute<{ id: string }>(sql`
-      insert into bundles (title, metadata, updated_at)
-      values (${group.title}, ${JSON.stringify(metadata)}::jsonb, now())
+      insert into bundles (title, status, closed_at, metadata, updated_at)
+      values (
+        ${group.title},
+        ${group.status}::auto_bundle_status,
+        case when ${group.status} = 'closed' then now() else null end,
+        ${JSON.stringify(metadata)}::jsonb,
+        now()
+      )
       returning id
     `);
     return inserted.rows[0]!.id;
@@ -132,11 +165,12 @@ export class BundleService {
       grouped_message_count: string;
     }>(sql`
       select
-        (select count(*) from bundles where metadata->>'createdBy' = 'auto_bundle_service') as bundle_count,
+        (select count(*) from bundles where metadata->>'createdBy' = 'auto_bundle_service' and status <> 'superseded') as bundle_count,
         (select count(*)
          from bundle_messages bm
          join bundles b on b.id = bm.bundle_id
-         where b.metadata->>'createdBy' = 'auto_bundle_service') as grouped_message_count
+         where b.metadata->>'createdBy' = 'auto_bundle_service'
+           and b.status <> 'superseded') as grouped_message_count
     `);
     return result.rows[0]!;
   }
@@ -182,9 +216,6 @@ export function buildAutoBundleGroups(rows: BundleCandidateRow[]): AutoBundleGro
   for (const groupRows of groupTextThenAttachment(rows, assigned)) {
     addGroup(groups, assigned, "text_then_attachment", groupRows, "Текст и вложение");
   }
-  for (const groupRows of groupOwnerBursts(rows, assigned)) {
-    addGroup(groups, assigned, "owner_time_window", groupRows, "Серия сообщений владельца");
-  }
 
   return groups;
 }
@@ -200,11 +231,14 @@ function addGroup(
   if (freshRows.length < 2) return;
   const messageIds = freshRows.map((row) => row.id);
   for (const messageId of messageIds) assigned.add(messageId);
+  const lastDate = Math.max(...freshRows.map((row) => new Date(row.telegram_date).getTime()));
+  const status = Date.now() - lastDate >= BUNDLE_SETTLING_WINDOW_MS ? "closed" : "open";
   groups.push({
-    key: `${rule}:${hash(messageIds.join(":"))}`,
+    key: `${rule}:${stableGroupSeed(rule, freshRows)}`,
     rule,
     title,
     messageIds,
+    status,
   });
 }
 
@@ -247,18 +281,6 @@ function groupTextThenAttachment(rows: BundleCandidateRow[], assigned: Set<strin
       Number(previous.attachment_count) === 0 &&
       Number(current.attachment_count) > 0 &&
       deltaMs(previous, current) <= TEXT_ATTACHMENT_WINDOW_MS
-    );
-  });
-}
-
-function groupOwnerBursts(rows: BundleCandidateRow[], assigned: Set<string>) {
-  return groupAdjacent(rows, assigned, (previous, current, groupSize) => {
-    return (
-      groupSize < MAX_OWNER_BURST_SIZE &&
-      sameChatAndUser(previous, current) &&
-      !forwardKey(previous) &&
-      !forwardKey(current) &&
-      deltaMs(previous, current) <= OWNER_WINDOW_MS
     );
   });
 }
@@ -316,4 +338,24 @@ function sortRows(rows: BundleCandidateRow[]) {
 
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex").slice(0, 24);
+}
+
+function stableGroupSeed(rule: string, rows: BundleCandidateRow[]) {
+  const sorted = sortRows(rows);
+  const first = sorted[0]!;
+  if (rule === "media_group") {
+    const mediaGroupId =
+      typeof first.metadata?.mediaGroupId === "string" ? first.metadata.mediaGroupId : first.id;
+    return hash(`${first.telegram_chat_id}:${mediaGroupId}`);
+  }
+  if (rule === "reply_thread") {
+    return hash(`${first.telegram_chat_id}:${first.reply_to_message_id ?? first.id}`);
+  }
+  if (rule === "sequential_forward") {
+    return hash(`${first.telegram_chat_id}:${forwardKey(first)}:${first.id}`);
+  }
+  if (rule === "text_then_attachment") {
+    return hash(`${first.telegram_chat_id}:${first.id}`);
+  }
+  return hash(`${first.telegram_chat_id}:${first.id}`);
 }

@@ -2,6 +2,7 @@ import type { Attachment, Message } from "../../db/schema.js";
 import type { SemanticSearchResult } from "../../domain/embeddings/embedding-service.js";
 import type { LlmClassificationService } from "../../domain/llm/llm-classification-service.js";
 import type { SearchResult } from "../../search/search-service.js";
+import type { InboxProposal } from "../../domain/review/review-service.js";
 
 export const TELEGRAM_MESSAGE_SAFE_LIMIT = 3900;
 
@@ -127,10 +128,15 @@ export function searchSnippet(text: string | null | undefined, query: string, le
 
 export function formatSearchResult(result: SearchResult, query: string) {
   const link = telegramMessageLink(result.telegramChatId, result.telegramMessageId);
+  const reasons = Array.isArray(result.matchReasons) ? result.matchReasons.join(", ") : "";
   return [
     `${formatTelegramDate(result.telegramDate)} · ${result.messageType}`,
+    reasons ? `Совпадение: ${reasons}` : "",
     searchSnippet(result.currentText, query),
     result.attachmentNames ? `Файлы: ${result.attachmentNames}` : "",
+    result.acceptedRecordTitle
+      ? `Record: ${result.acceptedRecordType ?? "accepted"} · ${result.acceptedRecordTitle}`
+      : "",
     link ?? "",
   ]
     .filter(Boolean)
@@ -156,6 +162,29 @@ export function formatProposal(
     `${formatTelegramDate(proposal.created_at)} · ${proposal.type}`,
     proposal.title ?? "",
     shortText(proposal.body, 260),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatInboxProposal(proposal: InboxProposal) {
+  const link =
+    proposal.sourceTelegramChatId && proposal.sourceTelegramMessageId
+      ? telegramMessageLink(proposal.sourceTelegramChatId, proposal.sourceTelegramMessageId)
+      : undefined;
+  const sourceLabel =
+    proposal.sourceKind === "bundle"
+      ? `bundle · ${proposal.bundleMessageCount} сообщ.`
+      : "message";
+  return [
+    `${formatTelegramDate(proposal.createdAt)} · ${proposal.type} · ${sourceLabel}`,
+    proposal.title ?? "",
+    shortText(proposal.body, 260),
+    proposal.needsClarification && proposal.clarificationQuestion
+      ? `Вопрос: ${proposal.clarificationQuestion}`
+      : "",
+    proposal.sourcePreview ? `Источник: ${shortText(proposal.sourcePreview, 320)}` : "",
+    link ?? "",
   ]
     .filter(Boolean)
     .join("\n");
