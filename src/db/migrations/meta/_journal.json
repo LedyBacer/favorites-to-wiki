@@ -43,6 +43,13 @@
       "when": 1782943200000,
       "tag": "0005_phase5_llm_classification",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782946800000,
+      "tag": "0006_phase6_worker_bundles",
+      "breakpoints": true
     }
   ]
 }
