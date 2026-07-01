@@ -5,6 +5,7 @@ import { runMigrations } from "../../src/db/migrate.js";
 import {
   attachments,
   derivedArtifacts,
+  embeddings,
   messageVersions,
   processingJobs,
 } from "../../src/db/schema.js";
@@ -31,6 +32,7 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
     await db.execute(sql`
       truncate table
         derived_artifacts,
+        embeddings,
         attachments,
         message_versions,
         bundle_messages,
@@ -55,13 +57,14 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
       select table_name
       from information_schema.tables
       where table_schema = 'public'
-        and table_name in ('messages', 'message_versions', 'attachments', 'processing_jobs', 'derived_artifacts')
+        and table_name in ('messages', 'message_versions', 'attachments', 'processing_jobs', 'derived_artifacts', 'embeddings')
       order by table_name
     `);
 
     expect(result.rows.map((row) => row.table_name)).toEqual([
       "attachments",
       "derived_artifacts",
+      "embeddings",
       "message_versions",
       "messages",
       "processing_jobs",
@@ -264,13 +267,50 @@ describe.skipIf(!databaseUrl)("MessageService PostgreSQL integration", () => {
       "link_preview",
       "normalized_text",
     ]);
-    expect(
-      rows.find((row) => row.artifactType === "extracted_metadata")?.content,
-    ).toMatchObject({
+    expect(rows.find((row) => row.artifactType === "extracted_metadata")?.content).toMatchObject({
       domains: ["example.com"],
       hashtags: ["phase2"],
       dates: [{ raw: "2026-07-01", normalized: "2026-07-01", kind: "iso" }],
     });
+  });
+
+  it("stores message embeddings separately from source messages", async () => {
+    const source = await service.saveTelegramMessage(
+      messageInput({ telegramMessageId: 1011, text: "semantic search source" }),
+    );
+
+    await db.insert(embeddings).values({
+      sourceKind: "message",
+      sourceId: source.messageId,
+      provider: "ollama",
+      model: "test-embedding",
+      dimensions: 3,
+      contentHash: "sha256:test",
+      embedding: [0.1, 0.2, 0.3],
+      metadata: { integrationTest: true },
+    });
+    await db.insert(derivedArtifacts).values({
+      sourceKind: "message",
+      sourceId: source.messageId,
+      artifactType: "embedding_reference",
+      artifactKey: "ollama:test-embedding",
+      contentHash: "sha256:reference",
+      content: {
+        provider: "ollama",
+        model: "test-embedding",
+        dimensions: 3,
+        contentHash: "sha256:test",
+      },
+    });
+
+    const rows = await db.select().from(embeddings);
+    const references = await db
+      .select()
+      .from(derivedArtifacts)
+      .where(eq(derivedArtifacts.artifactType, "embedding_reference"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.sourceId).toBe(source.messageId);
+    expect(references).toHaveLength(1);
   });
 
   async function countMessagesAndVersions() {

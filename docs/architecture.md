@@ -2,7 +2,7 @@
 
 ## Goal
 
-The first milestone is a reliable Telegram-first personal inbox. The system stores original Telegram messages and files with enough metadata to support later AI processing. Heavy OCR/ASR is optional and isolated behind local or self-hosted HTTP processor services.
+The first milestone is a reliable Telegram-first personal inbox. The system stores original Telegram messages and files with enough metadata to support later AI processing. Heavy OCR/ASR and embedding generation are optional and isolated behind local or self-hosted processor services.
 
 ## Stack Decisions
 
@@ -13,10 +13,11 @@ The first milestone is a reliable Telegram-first personal inbox. The system stor
 - Local filesystem storage behind a Docker volume for Telegram files. The database stores relative paths, SHA-256 hashes, Telegram file IDs, and download status.
 - Zod validates environment configuration at startup.
 - Vitest covers critical deterministic logic.
+- Ollama-compatible HTTP embedding APIs provide optional local semantic search.
 
 ## Data Boundaries
 
-Original Telegram content is stored in `messages`, `message_versions`, and `attachments`. Future AI outputs must be stored separately in `records`, `entities`, `relations`, and `processing_jobs`.
+Original Telegram content is stored in `messages`, `message_versions`, and `attachments`. AI and deterministic outputs must be stored separately in `derived_artifacts`, `embeddings`, `records`, `entities`, `relations`, and `processing_jobs`.
 
 The bot stores a safe metadata subset instead of the entire raw Telegram update:
 
@@ -39,9 +40,35 @@ Attachments are keyed by `telegram_file_unique_id` to avoid repeated downloads o
 
 File names are sanitized with `path.basename`, ASCII-safe replacement, MIME-based extension fallback, and a `.bin` fallback for unknown content.
 
-## Search
+## Full-Text Search
 
 MVP search uses PostgreSQL full-text search with `simple` configuration over message text/caption and attachment file names, with an `ILIKE` fallback for short or partial queries. Results are returned through `/search`.
+
+## Phase 4 Embeddings And Semantic Search
+
+Phase 4 adds optional Ollama-compatible embeddings for semantic search. The app builds a message-level embedding input from:
+
+- current message text;
+- `normalized_text` artifacts when available;
+- attachment file names;
+- selected attachment artifacts such as `ocr_text` and `transcript`.
+
+The embedding vector is stored in the `embeddings` table as rebuildable derived data keyed by `(source_kind, source_id, provider, model)`. A matching `derived_artifacts.embedding_reference` row stores the provider, model, dimensions, and source content hash for auditability. Source Telegram rows remain unchanged.
+
+The first implementation uses PostgreSQL `double precision[]` arrays and cosine similarity, avoiding a required `pgvector` extension on the home server. This is suitable for the current personal archive scale and can be migrated to `pgvector` later if ranking speed becomes a real bottleneck.
+
+Job type:
+
+- `message_embedding` for `messages`.
+
+Entry points:
+
+- Telegram `/embed`;
+- `npm run embeddings:run`;
+- Docker `node dist/app/embeddings.js`;
+- Telegram `/semantic` for semantic search.
+
+Embedding reindexing is idempotent. Normal runs enqueue missing message jobs. Explicit `--reindex` or `/embed 20 reindex` reopens existing embedding jobs; unchanged source hashes are skipped, and changed inputs overwrite rebuildable embedding rows.
 
 ## Future Expansion
 
@@ -53,7 +80,7 @@ The schema already includes placeholders for:
 - relations between source and derived objects;
 - processing jobs for OCR, ASR, embeddings, previews, and LLM classification.
 
-Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes.
+Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes. Phase 5 should reuse the provider-boundary pattern from OCR/ASR and embeddings, but classification results must be proposals in derived/structured tables rather than direct mutations of source Telegram rows.
 
 ## Phase 2 Preparation
 

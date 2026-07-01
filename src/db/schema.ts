@@ -1,5 +1,6 @@
 import {
   bigint,
+  customType,
   index,
   integer,
   jsonb,
@@ -11,6 +12,15 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { relations as drizzleRelations, sql } from "drizzle-orm";
+
+const doublePrecisionArray = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "double precision[]";
+  },
+  toDriver(value) {
+    return `{${value.join(",")}}`;
+  },
+});
 
 export const telegramMessageType = pgEnum("telegram_message_type", [
   "text",
@@ -244,11 +254,7 @@ export const processingJobs = pgTable(
       table.subjectKind,
       table.subjectId,
     ),
-    claimIdx: index("processing_jobs_claim_idx").on(
-      table.status,
-      table.runAfter,
-      table.createdAt,
-    ),
+    claimIdx: index("processing_jobs_claim_idx").on(table.status, table.runAfter, table.createdAt),
     lockedIdx: index("processing_jobs_locked_idx").on(table.status, table.lockedAt),
   }),
 );
@@ -276,6 +282,33 @@ export const derivedArtifacts = pgTable(
     ),
     sourceIdx: index("derived_artifacts_source_idx").on(table.sourceKind, table.sourceId),
     typeIdx: index("derived_artifacts_type_idx").on(table.artifactType),
+  }),
+);
+
+export const embeddings = pgTable(
+  "embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceKind: text("source_kind").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    dimensions: integer("dimensions").notNull(),
+    contentHash: text("content_hash").notNull(),
+    embedding: doublePrecisionArray("embedding").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceEmbeddingUq: unique("embeddings_source_embedding_uq").on(
+      table.sourceKind,
+      table.sourceId,
+      table.provider,
+      table.model,
+    ),
+    sourceIdx: index("embeddings_source_idx").on(table.sourceKind, table.sourceId),
+    modelIdx: index("embeddings_model_idx").on(table.provider, table.model),
   }),
 );
 
@@ -312,3 +345,5 @@ export type ProcessingJob = typeof processingJobs.$inferSelect;
 export type NewProcessingJob = typeof processingJobs.$inferInsert;
 export type DerivedArtifact = typeof derivedArtifacts.$inferSelect;
 export type NewDerivedArtifact = typeof derivedArtifacts.$inferInsert;
+export type Embedding = typeof embeddings.$inferSelect;
+export type NewEmbedding = typeof embeddings.$inferInsert;

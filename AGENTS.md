@@ -36,7 +36,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 ## Known Gaps
 
 - No webhook HTTP server.
-- No embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
+- No local LLM classification, external AI providers, web UI, reminders, Redis, Kafka, or Kubernetes.
 - Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, local export file storage, idempotent repeated imports, and unavailable attachment reporting through `skipped_too_large`.
 - PostgreSQL integration tests exist under `tests/integration`, but they require an explicit `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json` so only `src` is emitted.
@@ -54,13 +54,15 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - `processing_jobs` has lock ownership, lock timestamps, retry limits, and completion timestamps for future worker claim semantics.
 - Phase 2 deterministic preprocessing writes `normalized_text`, `extracted_metadata`, `link_preview`, `file_metadata`, and `file_preview` artifacts. Link previews must not fetch external URLs.
 - Preprocessing entry points are `/preprocess` and `npm run preprocess:run`; Docker production can run `docker compose run --rm --entrypoint node app dist/app/preprocess.js 100`.
-- Roadmap phases 1.1 through 3 are complete; current planned work is Phase 4 embeddings and semantic search.
+- Roadmap phases 1.1 through 3 are complete; Phase 4 embeddings and semantic search are implemented and awaiting deployment validation.
 - Phase 1.6 was deployed to the Proxmox Docker host, passed Docker healthcheck, passed PostgreSQL integration tests against a disposable database, and completed a PostgreSQL plus storage backup/restore smoke test.
 - Phase 2 was deployed to the Proxmox Docker host, passed Docker healthcheck, processed production archive data into 102 derived artifacts with no failed jobs, and a repeated preprocessing run was idempotent.
 - Phase 3 local OCR/ASR adds optional HTTP processor services outside the main app container. OCR jobs write `ocr_text` artifacts for downloaded images; ASR jobs write `transcript` artifacts for downloaded audio/video. Source Telegram rows remain unchanged.
 - The bundled OCR service uses PaddleOCR with `eslav_PP-OCRv5_mobile_rec` by default for Russian, Belarusian, Ukrainian, English, and numbers. The bundled ASR service uses faster-whisper `large-v3` with Russian by default. Both are optional Docker Compose profiles and can be replaced by remote services through `OCR_SERVICE_URL` and `ASR_SERVICE_URL`.
 - Phase 3 was deployed to the Proxmox Docker host through Git, passed Docker app healthcheck, passed PostgreSQL integration tests, built and started optional OCR/ASR containers, and completed production OCR/ASR smoke processing with 1 `ocr_text` artifact and 3 `transcript` artifacts.
-- Phase 4 is ready to start. Embeddings must be stored as rebuildable derived data, not in source Telegram rows, and should consume message text plus selected `derived_artifacts` such as normalized text, OCR text, and transcripts.
+- Phase 4 adds optional Ollama-compatible embeddings and semantic search. Embeddings are stored as rebuildable derived data in `embeddings` plus `derived_artifacts.embedding_reference`, not in source Telegram rows. Embedding input consumes message text plus selected `derived_artifacts` such as normalized text, OCR text, and transcripts.
+- Phase 4 entry points are `/embed`, `/semantic`, `npm run embeddings:run`, and Docker `node dist/app/embeddings.js`.
+- Phase 5 is prepared but not started. Local LLM classification must use a replaceable provider boundary, validate structured JSON with Zod or JSON Schema, write proposed records/entities/relations, and never allow model services to write directly to PostgreSQL.
 
 ## Maintenance Rule
 

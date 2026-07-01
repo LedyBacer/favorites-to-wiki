@@ -24,6 +24,7 @@ Latest committed work on `main`:
 - `cdd5d4d Implement deterministic preprocessing`
 - `13496f4 Allow larger preprocessing batches`
 - `d90696d Implement optional OCR and ASR processing`
+- Phase 4 local embeddings and semantic search are implemented and ready for deployment validation.
 
 ## Review Against The Original Plan
 
@@ -80,9 +81,8 @@ Latest committed work on `main`:
 
 These were explicitly excluded from the first phase and should remain out until the archive layer is stable:
 
-- Ollama and local LLM integration;
-- embeddings and vector search;
 - external AI providers;
+- local LLM classification;
 - web UI;
 - n8n;
 - reminders;
@@ -450,10 +450,65 @@ Before starting Phase 4:
 
 ### Phase 4 - Embeddings And Semantic Search
 
-- Choose a small local embedding model.
-- Add embeddings as derived data.
-- Add semantic search alongside PostgreSQL full-text search.
-- Keep reindexing idempotent.
+Status: implementation complete; deployment validation pending in this change.
+
+- Completed: choose a small local embedding model:
+  - `qwen3-embedding:0.6b` through Ollama by default;
+  - configurable through `EMBEDDING_MODEL`.
+- Completed: add an Ollama-compatible embedding provider boundary:
+  - `EMBEDDING_SERVICE_URL`;
+  - optional `EMBEDDING_SERVICE_API_KEY`;
+  - optional `EMBEDDING_DIMENSIONS`;
+  - bounded request timeout and input size.
+- Completed: add embeddings as rebuildable derived data:
+  - vectors are stored in `embeddings`;
+  - audit/reference rows are stored as `derived_artifacts.embedding_reference`;
+  - source Telegram rows remain unchanged.
+- Completed: build message-level embedding input from:
+  - current message text;
+  - `normalized_text`;
+  - attachment file names;
+  - `ocr_text`;
+  - `transcript`.
+- Completed: add semantic search alongside PostgreSQL full-text search:
+  - `/search` remains PostgreSQL full-text search;
+  - `/semantic` uses embedding cosine similarity.
+- Completed: keep reindexing idempotent:
+  - normal runs enqueue missing jobs;
+  - `--reindex` and `/embed 20 reindex` reopen jobs;
+  - unchanged source content hashes are skipped.
+- Completed: add entry points:
+  - Telegram `/embed`;
+  - Telegram `/semantic`;
+  - `npm run embeddings:run`;
+  - Docker `node dist/app/embeddings.js`.
+- Completed: document how to connect a local neural network through Ollama, including a `qwen3-embedding:0.6b` example.
+
+Exit criteria:
+
+- pending deployment validation: migrations apply on Proxmox;
+- pending deployment validation: Docker app healthcheck passes after deployment;
+- pending deployment validation: production embedding batch writes embeddings with no source row mutation;
+- pending deployment validation: Telegram `/semantic` returns results after indexing.
+
+### Readiness For Phase 5
+
+Phase 5 can start after Phase 4 deployment validation is recorded here.
+
+Prepared foundations:
+
+- local Ollama connectivity is documented and configurable;
+- AI/provider code is isolated behind app-owned HTTP clients;
+- generated model outputs remain under app validation and persistence control;
+- embeddings are rebuildable and separate from source Telegram rows;
+- `processing_jobs` remains the queue/claim/retry boundary for model-backed workers.
+
+Phase 5 guardrails:
+
+- LLM services must not connect directly to PostgreSQL;
+- model output must be validated with Zod or JSON Schema before persistence;
+- classification should create proposed `records`, `entities`, and `relations`;
+- review/confirmation workflows should be available through Telegram before source-derived structured data is treated as accepted.
 
 ### Phase 5 - Local LLM Classification
 

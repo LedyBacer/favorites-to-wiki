@@ -1,4 +1,5 @@
 import type { Attachment, Message } from "../../db/schema.js";
+import type { SemanticSearchResult } from "../../domain/embeddings/embedding-service.js";
 import type { SearchResult } from "../../search/search-service.js";
 
 export const TELEGRAM_MESSAGE_SAFE_LIMIT = 3900;
@@ -127,6 +128,18 @@ export function formatSearchResult(result: SearchResult, query: string) {
   const link = telegramMessageLink(result.telegramChatId, result.telegramMessageId);
   return [
     `${formatTelegramDate(result.telegramDate)} · ${result.messageType}`,
+    searchSnippet(result.currentText, query),
+    result.attachmentNames ? `Файлы: ${result.attachmentNames}` : "",
+    link ?? "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatSemanticSearchResult(result: SemanticSearchResult, query: string) {
+  const link = telegramMessageLink(result.telegramChatId, result.telegramMessageId);
+  return [
+    `${formatTelegramDate(result.telegramDate)} · ${result.messageType} · ${result.similarity.toFixed(3)}`,
     searchSnippet(result.currentText, query),
     result.attachmentNames ? `Файлы: ${result.attachmentNames}` : "",
     link ?? "",

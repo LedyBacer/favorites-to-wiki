@@ -22,6 +22,7 @@
     "attachments:retry": "tsx src/app/retry-attachments.ts",
     "preprocess:run": "tsx src/app/preprocess.ts",
     "media:process": "tsx src/app/media-process.ts",
+    "embeddings:run": "tsx src/app/embeddings.ts",
     "import:telegram": "tsx src/import/telegram-export.ts"
   },
   "dependencies": {

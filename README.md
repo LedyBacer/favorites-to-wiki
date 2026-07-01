@@ -26,6 +26,8 @@ Edit `.env`:
 - `BOT_ACKNOWLEDGEMENTS` - set `false` to disable save confirmations.
 - `OCR_SERVICE_URL` - optional OCR HTTP service URL.
 - `ASR_SERVICE_URL` - optional ASR HTTP service URL.
+- `EMBEDDING_SERVICE_URL` - optional Ollama-compatible embedding API base URL.
+- `EMBEDDING_MODEL` - local embedding model name.
 
 Start PostgreSQL:
 
@@ -68,6 +70,56 @@ The OCR service defaults to PaddleOCR with `eslav_PP-OCRv5_mobile_rec`, covering
 
 OCR and ASR models are loaded lazily on the first processing request and unloaded from memory after 60 seconds of inactivity by default. Tune this with `OCR_MODEL_IDLE_UNLOAD_SECONDS` and `ASR_MODEL_IDLE_UNLOAD_SECONDS`.
 
+## Connecting A Local Neural Network
+
+The app can connect to a local or LAN-hosted Ollama server for Phase 4 embeddings. This is optional: without `EMBEDDING_SERVICE_URL`, normal archiving, full-text search, OCR, and ASR still work.
+
+Example `.env` for Ollama:
+
+```bash
+EMBEDDING_SERVICE_URL=http://192.168.1.156:11434
+EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSIONS=
+EMBEDDING_SERVICE_TIMEOUT_MS=300000
+EMBEDDING_MAX_INPUT_CHARS=12000
+```
+
+Check that the model is available:
+
+```bash
+curl http://192.168.1.156:11434/api/tags
+curl http://192.168.1.156:11434/api/embed -d '{
+  "model": "qwen3-embedding:0.6b",
+  "input": "semantic search test",
+  "truncate": true
+}'
+```
+
+Then run embedding indexing:
+
+```bash
+npm run embeddings:run -- 100
+```
+
+In Docker Compose production:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100
+```
+
+Use `--reindex` after changing the model or after rebuilding OCR/ASR artifacts:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --reindex
+```
+
+Semantic search is available through Telegram:
+
+```text
+/semantic запрос
+/semantic 10 запрос
+```
+
 ## Telegram Bot Setup
 
 1. Open Telegram and message `@BotFather`.
@@ -89,6 +141,9 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 - `/process_media` - enqueue and run a small OCR/ASR batch.
 - `/process_media 10 ocr` - OCR-only batch.
 - `/process_media 10 asr` - ASR-only batch.
+- `/embed` - enqueue and run a small embedding indexing batch.
+- `/embed 20 reindex` - re-open existing embedding jobs and rebuild changed vectors.
+- `/semantic query` - semantic search over indexed embeddings.
 
 ## Development Commands
 
@@ -101,6 +156,7 @@ npm run build
 npm run attachments:retry
 npm run preprocess:run
 npm run media:process
+npm run embeddings:run
 ```
 
 In Docker Compose production, run the compiled retry entry point inside the app image:
@@ -143,6 +199,24 @@ Run it as a loop:
 
 ```bash
 docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=all --loop
+```
+
+Run embedding indexing once:
+
+```bash
+npm run embeddings:run -- 100
+```
+
+Run the compiled embedding worker in Docker Compose:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100
+```
+
+Run it as a loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --loop
 ```
 
 `npm run test:integration` requires a PostgreSQL database URL:
@@ -206,11 +280,13 @@ Core modules:
 - `src/domain/processing` - PostgreSQL processing job claim/lock primitives for future workers.
 - `src/domain/preprocessing` - deterministic normalized text, metadata, safe preview, and file metadata artifacts.
 - `src/domain/media-processing` - optional OCR/ASR job enqueueing, external processor clients, and derived artifacts.
+- `src/domain/embeddings` - Ollama-compatible embedding client, rebuildable embedding indexing, and semantic search.
 
 ## Current Limitations
 
 - Long polling only; no webhook server yet.
-- No embeddings, LLM, reminders, web UI, or external AI calls.
+- No LLM classification, reminders, web UI, or external AI calls.
 - OCR/ASR require optional local or remote HTTP processor services.
+- Semantic search requires an optional local or remote Ollama-compatible embedding service.
 - Integration tests require `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json`; test files are not emitted to `dist`.

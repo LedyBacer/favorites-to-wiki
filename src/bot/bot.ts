@@ -7,6 +7,7 @@ import {
   AttachmentService,
   type AttachmentDownloadSummary,
 } from "../domain/attachments/attachment-service.js";
+import { EmbeddingService, type EmbeddingSummary } from "../domain/embeddings/embedding-service.js";
 import {
   MediaProcessingService,
   type MediaProcessingSummary,
@@ -21,6 +22,7 @@ import { LocalStorage } from "../storage/local-storage.js";
 import {
   formatRecentMessage,
   formatSearchResult,
+  formatSemanticSearchResult,
   formatSavedAck,
   parseLimitPrefix,
   splitTelegramMessage,
@@ -71,6 +73,17 @@ function formatMediaProcessingSummary(summary: MediaProcessingSummary) {
   ].join("\n");
 }
 
+function formatEmbeddingSummary(summary: EmbeddingSummary) {
+  return [
+    "Индексация embeddings завершена",
+    `Создано задач: ${summary.jobsCreated}`,
+    `Взято задач: ${summary.jobsClaimed}`,
+    `Завершено: ${summary.jobsCompleted}`,
+    `Ошибок: ${summary.jobsFailed}`,
+    `Embeddings записано: ${summary.embeddingsWritten}`,
+  ].join("\n");
+}
+
 export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const bot = new Bot<BotContext>(config.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(hydrateFiles(config.TELEGRAM_BOT_TOKEN));
@@ -79,6 +92,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const searchService = new SearchService(db);
   const preprocessingService = new PreprocessingService(db);
   const mediaProcessingService = new MediaProcessingService(db, config);
+  const embeddingService = new EmbeddingService(db, config);
   const storage = new LocalStorage(config.STORAGE_ROOT);
   const attachmentService = new AttachmentService(
     db,
@@ -119,6 +133,8 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         "/status - состояние хранилища и базы",
         "/preprocess - запустить пакет детерминированной предобработки",
         "/process_media - запустить пакет OCR/ASR обработки",
+        "/embed - запустить пакет индексации embeddings",
+        "/semantic запрос - семантический поиск по embeddings",
       ].join("\n"),
     );
   });
@@ -140,6 +156,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
       const stats = await messageService.stats();
       const preprocessingStats = await preprocessingService.stats();
       const mediaProcessingStats = await mediaProcessingService.stats();
+      const embeddingStats = await embeddingService.stats();
       await ctx.reply(
         [
           "Статус: ok",
@@ -159,8 +176,13 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
           `OCR/ASR выполняется: ${mediaProcessingStats.running_count}`,
           `OCR/ASR завершено: ${mediaProcessingStats.completed_count}`,
           `OCR/ASR ошибок: ${mediaProcessingStats.failed_count}`,
+          `Embeddings ожидает: ${embeddingStats.pending_count}`,
+          `Embeddings выполняется: ${embeddingStats.running_count}`,
+          `Embeddings завершено: ${embeddingStats.completed_count}`,
+          `Embeddings ошибок: ${embeddingStats.failed_count}`,
           `Производных артефактов: ${preprocessingStats.artifact_count}`,
           `OCR/ASR артефактов: ${mediaProcessingStats.artifact_count}`,
+          `Embeddings: ${embeddingStats.embedding_count}`,
         ].join("\n"),
       );
     } catch (error) {
@@ -203,6 +225,17 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     await ctx.reply(formatMediaProcessingSummary(summary));
   });
 
+  bot.command("embed", async (ctx) => {
+    const { limit, rest } = parseLimitPrefix(ctx.match, 5, 50);
+    const reindex = rest === "reindex" || rest === "--reindex";
+    const summary = await embeddingService.enqueueAndProcess(
+      `telegram-${ctx.from?.id}`,
+      limit,
+      reindex,
+    );
+    await ctx.reply(formatEmbeddingSummary(summary));
+  });
+
   bot.command("search", async (ctx) => {
     const { limit, rest: query } = parseLimitPrefix(
       ctx.match,
@@ -219,6 +252,27 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
       return;
     }
     const text = results.map((result) => formatSearchResult(result, query)).join("\n\n");
+    for (const chunk of splitTelegramMessage(text)) {
+      await ctx.reply(chunk);
+    }
+  });
+
+  bot.command("semantic", async (ctx) => {
+    const { limit, rest: query } = parseLimitPrefix(
+      ctx.match,
+      config.SEARCH_RESULT_LIMIT,
+      config.SEARCH_RESULT_LIMIT,
+    );
+    if (!query) {
+      await ctx.reply("Использование: /semantic запрос");
+      return;
+    }
+    const results = await embeddingService.semanticSearch(query, limit);
+    if (results.length === 0) {
+      await ctx.reply("Ничего не найдено.");
+      return;
+    }
+    const text = results.map((result) => formatSemanticSearchResult(result, query)).join("\n\n");
     for (const chunk of splitTelegramMessage(text)) {
       await ctx.reply(chunk);
     }

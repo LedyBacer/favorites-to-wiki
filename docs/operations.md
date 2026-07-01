@@ -233,3 +233,55 @@ Defaults:
 - CPU compute type: `int8`.
 
 OCR/ASR workers must keep writing only to `derived_artifacts` and must not mutate `messages`, `message_versions`, or `attachments` except through existing source ingestion/download paths.
+
+## Embeddings And Semantic Search
+
+Embeddings are optional. Configure an Ollama-compatible HTTP endpoint in `.env`:
+
+```bash
+EMBEDDING_SERVICE_URL=http://192.168.1.156:11434
+EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSIONS=
+EMBEDDING_SERVICE_TIMEOUT_MS=300000
+EMBEDDING_MAX_INPUT_CHARS=12000
+```
+
+Smoke-test Ollama from the Docker host:
+
+```bash
+curl http://192.168.1.156:11434/api/tags
+curl http://192.168.1.156:11434/api/embed -d '{"model":"qwen3-embedding:0.6b","input":"semantic search test","truncate":true}'
+```
+
+Run one embedding indexing batch:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100
+```
+
+Run a continuous worker loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --loop
+```
+
+Reopen existing jobs and rebuild only changed vectors after model/input changes:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --reindex
+```
+
+The same small batch path is available from Telegram through `/embed`; semantic search is available through `/semantic`.
+
+Embedding workers write to `embeddings` plus `derived_artifacts.embedding_reference`. They must not mutate `messages`, `message_versions`, or `attachments`.
+
+## Phase 5 Preparation
+
+Local LLM classification should reuse the same operational pattern as OCR/ASR and embeddings:
+
+- configure a local provider URL in `.env`;
+- run processing through `processing_jobs`;
+- validate model output with Zod or JSON Schema inside the app;
+- write proposed records/entities/relations as reviewable derived data;
+- never allow the model service to connect directly to PostgreSQL or mutate source Telegram tables.

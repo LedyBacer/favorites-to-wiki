@@ -51,6 +51,17 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(500 * 1024 * 1024),
+  EMBEDDING_SERVICE_URL: emptyStringToUndefined(z.string().url().optional()),
+  EMBEDDING_SERVICE_API_KEY: emptyStringToUndefined(z.string().optional()),
+  EMBEDDING_MODEL: z.string().min(1).default("qwen3-embedding:0.6b"),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().optional(),
+  EMBEDDING_SERVICE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(30 * 60 * 1000)
+    .default(300000),
+  EMBEDDING_MAX_INPUT_CHARS: z.coerce.number().int().min(100).max(200000).default(12000),
   LOG_LEVEL: z.string().default("info"),
 });
 
