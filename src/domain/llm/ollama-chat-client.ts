@@ -90,9 +90,40 @@ function parseJsonObject(content: string): unknown {
   try {
     return JSON.parse(content);
   } catch {
-    const start = content.indexOf("{");
-    const end = content.lastIndexOf("}");
-    if (start < 0 || end <= start) throw new Error("LLM response did not contain JSON");
-    return JSON.parse(content.slice(start, end + 1));
+    const json = firstBalancedJsonObject(content);
+    if (!json) throw new Error("LLM response did not contain JSON");
+    return JSON.parse(json);
   }
+}
+
+function firstBalancedJsonObject(content: string) {
+  const start = content.indexOf("{");
+  if (start < 0) return undefined;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < content.length; index += 1) {
+    const char = content[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = inString;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return content.slice(start, index + 1);
+    }
+  }
+
+  return undefined;
 }
