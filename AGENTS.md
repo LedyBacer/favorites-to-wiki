@@ -52,7 +52,8 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - In Docker Compose production, run attachment retry as `docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20`.
 - `derived_artifacts` is the rebuildable storage boundary for future deterministic preprocessing outputs; do not mix derived Phase 2 data into `messages.metadata`.
 - `processing_jobs` has lock ownership, lock timestamps, retry limits, and completion timestamps for future worker claim semantics.
-- Roadmap phases 1.1, 1.2, 1.3, 1.4, and 1.5 are complete; current planned work is Phase 1.6 deployment verification and backup/restore smoke testing.
+- Roadmap phases 1.1 through 1.6 are complete; current planned work is Phase 2 deterministic preprocessing.
+- Phase 1.6 was deployed to the Proxmox Docker host, passed Docker healthcheck, passed PostgreSQL integration tests against a disposable database, and completed a PostgreSQL plus storage backup/restore smoke test.
 
 ## Maintenance Rule
 

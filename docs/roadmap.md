@@ -20,6 +20,7 @@ Latest committed work on `main`:
 - `d675c2d Run database migrations on startup`
 - `8728523 Fix Docker database URL`
 - `87a3dcb Document project roadmap`
+- `8b0d3d9 Complete operations prep for phase 2`
 
 ## Review Against The Original Plan
 
@@ -288,7 +289,7 @@ Exit criteria:
 
 Priority: medium.
 
-Status: implementation complete, pending deployment verification.
+Status: complete.
 
 - Completed: add an HTTP health endpoint or a small healthcheck command for Docker.
 - Completed: add Docker `healthcheck` for the app service.
@@ -308,15 +309,23 @@ Status: implementation complete, pending deployment verification.
   - PostgreSQL dump;
   - storage volume backup;
   - restore test.
+- Completed: deploy Phase 1.6 to the Proxmox Docker host through Git.
+- Completed: verify Docker app healthcheck after deployment.
+- Completed: run PostgreSQL integration tests against a disposable `favorites_integration` database on the Proxmox PostgreSQL service.
+- Completed: run backup/restore smoke test:
+  - PostgreSQL custom-format dump restored into `favorites_restore_check`;
+  - restored database queried successfully;
+  - Telegram storage volume archived and extracted successfully;
+  - temporary restore/test databases and extracted files removed.
 
 Exit criteria:
 
-- server can be updated and diagnosed without reading source code;
-- backup/restore process is documented and tested once.
+- completed: server can be updated and diagnosed without reading source code;
+- completed: backup/restore process is documented and tested once.
 
 ## Later AI-Focused Phases
 
-Only start these after the archive layer has real data and Phase 1 persistence gaps are closed. As of this review, Phases 1.1-1.5 are complete enough for daily archive use, and the schema already has extension tables for derived data. Phase 2 should still wait for Phase 1.6 deployment verification and backup/restore smoke testing because deterministic workers will make operations, backup, and restore more important.
+Only start these after the archive layer has real data and Phase 1 persistence gaps are closed. As of this review, Phases 1.1-1.6 are complete enough for daily archive use, operations, and backup/restore. Phase 2 can start with the guardrails below.
 
 ### Readiness For Phase 2
 
@@ -332,8 +341,8 @@ Ready foundations:
 
 Before starting Phase 2:
 
-- deploy the Phase 1.6 changes to Proxmox;
-- run and record one PostgreSQL plus storage backup/restore smoke test.
+- completed: deploy the Phase 1.6 changes to Proxmox;
+- completed: run and record one PostgreSQL plus storage backup/restore smoke test.
 
 ### Phase 2 - Deterministic Preprocessing
 
