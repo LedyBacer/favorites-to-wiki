@@ -15,42 +15,45 @@ export const classificationRecordTypes = [
   "unknown",
 ] as const;
 
-export const classificationOutputSchema = z.object({
-  summary: z.string().max(1000).default(""),
-  records: z
-    .array(
-      z.object({
-        type: z.enum(classificationRecordTypes),
-        title: z.string().min(1).max(240).catch("Без названия"),
-        body: z.string().max(4000).nullable().catch(null),
-        confidence: z.number().min(0).max(1).catch(0.5),
-        tags: z.array(z.string().min(1).max(64)).max(12).catch([]),
-      }),
-    )
-    .max(3)
-    .default([]),
-  entities: z
-    .array(
-      z.object({
-        type: z.string().min(1).max(80).catch("unknown"),
-        name: z.string().min(1).max(240),
-        confidence: z.number().min(0).max(1).catch(0.5),
-      }),
-    )
-    .max(8)
-    .default([]),
-  relations: z
-    .array(
-      z.object({
-        fromRecordIndex: z.number().int().min(0).max(2),
-        toEntityName: z.string().min(1).max(240),
-        type: z.string().min(1).max(80).catch("mentions"),
-        confidence: z.number().min(0).max(1).catch(0.5),
-      }),
-    )
-    .max(16)
-    .default([]),
-});
+export const classificationOutputSchema = z.preprocess(
+  normalizeClassificationRoot,
+  z.object({
+    summary: z.string().max(1000).catch(""),
+    records: z
+      .array(
+        z.object({
+          type: z.enum(classificationRecordTypes).catch("unknown"),
+          title: z.string().min(1).max(240).catch("Без названия"),
+          body: z.string().max(4000).nullable().catch(null),
+          confidence: z.number().min(0).max(1).catch(0.5),
+          tags: z.array(z.string().min(1).max(64)).max(12).catch([]),
+        }),
+      )
+      .max(3)
+      .catch([]),
+    entities: z
+      .array(
+        z.object({
+          type: z.string().min(1).max(80).catch("unknown"),
+          name: z.string().min(1).max(240).catch(""),
+          confidence: z.number().min(0).max(1).catch(0.5),
+        }),
+      )
+      .max(8)
+      .catch([]),
+    relations: z
+      .array(
+        z.object({
+          fromRecordIndex: z.number().int().min(0).max(2).catch(0),
+          toEntityName: z.string().min(1).max(240).catch(""),
+          type: z.string().min(1).max(80).catch("mentions"),
+          confidence: z.number().min(0).max(1).catch(0.5),
+        }),
+      )
+      .max(16)
+      .catch([]),
+  }),
+);
 
 export type ClassificationOutput = z.output<typeof classificationOutputSchema>;
 
@@ -180,4 +183,16 @@ function valueToText(value: unknown): string | undefined {
       .join("; ");
   }
   return undefined;
+}
+
+function normalizeClassificationRoot(value: unknown) {
+  if (Array.isArray(value)) {
+    return {
+      summary: "",
+      records: value,
+      entities: [],
+      relations: [],
+    };
+  }
+  return value;
 }

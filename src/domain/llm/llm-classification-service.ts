@@ -287,6 +287,7 @@ export class LlmClassificationService {
     const entityByName = new Map<string, string>();
     for (const entity of output.entities) {
       const normalizedName = entity.name.trim().toLowerCase();
+      if (!normalizedName) continue;
       const proposalKey = proposalKeyFor(
         "entity",
         messageId,

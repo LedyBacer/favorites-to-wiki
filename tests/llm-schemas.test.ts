@@ -27,23 +27,23 @@ describe("LLM output schemas", () => {
     expect(parsed.entities[0]?.name).toBe("monitor");
   });
 
-  it("rejects unsupported record types", () => {
-    expect(() =>
-      classificationOutputSchema.parse({
-        summary: "",
-        records: [
-          {
-            type: "password",
-            title: "Secret",
-            body: null,
-            confidence: 0.5,
-            tags: [],
-          },
-        ],
-        entities: [],
-        relations: [],
-      }),
-    ).toThrow();
+  it("normalizes unsupported record types to unknown", () => {
+    const parsed = classificationOutputSchema.parse({
+      summary: "",
+      records: [
+        {
+          type: "password",
+          title: "Secret",
+          body: null,
+          confidence: 0.5,
+          tags: [],
+        },
+      ],
+      entities: [],
+      relations: [],
+    });
+
+    expect(parsed.records[0]?.type).toBe("unknown");
   });
 
   it("validates image analysis output", () => {
