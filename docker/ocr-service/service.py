@@ -36,6 +36,8 @@ def normalize_results(results):
         data = page
         if hasattr(page, "json"):
             data = page.json
+        if isinstance(data, dict) and isinstance(data.get("res"), dict):
+            data = data["res"]
         if not isinstance(data, dict):
             continue
         texts = data.get("rec_texts") or data.get("texts") or []
