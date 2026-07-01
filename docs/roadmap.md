@@ -24,7 +24,10 @@ Latest committed work on `main`:
 - `cdd5d4d Implement deterministic preprocessing`
 - `13496f4 Allow larger preprocessing batches`
 - `d90696d Implement optional OCR and ASR processing`
-- Phase 4 local embeddings and semantic search are implemented and ready for deployment validation.
+- `d597873 Implement embeddings and semantic search`
+- `6946f4e Fix optional embedding dimensions parsing`
+- `f08bbf9 Fix embedding job payload typing`
+- `7914694 Fix embedding vector SQL binding`
 
 ## Review Against The Original Plan
 
@@ -450,7 +453,7 @@ Before starting Phase 4:
 
 ### Phase 4 - Embeddings And Semantic Search
 
-Status: implementation complete; deployment validation pending in this change.
+Status: complete.
 
 - Completed: choose a small local embedding model:
   - `qwen3-embedding:0.6b` through Ollama by default;
@@ -486,14 +489,22 @@ Status: implementation complete; deployment validation pending in this change.
 
 Exit criteria:
 
-- pending deployment validation: migrations apply on Proxmox;
-- pending deployment validation: Docker app healthcheck passes after deployment;
-- pending deployment validation: production embedding batch writes embeddings with no source row mutation;
-- pending deployment validation: Telegram `/semantic` returns results after indexing.
+- completed: migrations apply on Proxmox;
+- completed: Docker app healthcheck passes after deployment;
+- completed: PostgreSQL integration tests pass against disposable `favorites_integration` on Proxmox;
+- completed: production embedding batch writes embeddings with no source row mutation:
+  - 27 embeddings written;
+  - 27 `embedding_reference` artifacts written;
+  - 0 remaining failed `message_embedding` jobs.
+- completed: repeated embedding batch is idempotent:
+  - 0 jobs created;
+  - 0 jobs claimed;
+  - 0 embeddings written.
+- completed: semantic search was smoke-tested from the production app image and returned ranked results.
 
 ### Readiness For Phase 5
 
-Phase 5 can start after Phase 4 deployment validation is recorded here.
+Phase 5 is ready to start.
 
 Prepared foundations:
 

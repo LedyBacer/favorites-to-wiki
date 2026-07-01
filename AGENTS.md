@@ -54,7 +54,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - `processing_jobs` has lock ownership, lock timestamps, retry limits, and completion timestamps for future worker claim semantics.
 - Phase 2 deterministic preprocessing writes `normalized_text`, `extracted_metadata`, `link_preview`, `file_metadata`, and `file_preview` artifacts. Link previews must not fetch external URLs.
 - Preprocessing entry points are `/preprocess` and `npm run preprocess:run`; Docker production can run `docker compose run --rm --entrypoint node app dist/app/preprocess.js 100`.
-- Roadmap phases 1.1 through 3 are complete; Phase 4 embeddings and semantic search are implemented and awaiting deployment validation.
+- Roadmap phases 1.1 through 4 are complete; Phase 5 local LLM classification is ready to start.
 - Phase 1.6 was deployed to the Proxmox Docker host, passed Docker healthcheck, passed PostgreSQL integration tests against a disposable database, and completed a PostgreSQL plus storage backup/restore smoke test.
 - Phase 2 was deployed to the Proxmox Docker host, passed Docker healthcheck, processed production archive data into 102 derived artifacts with no failed jobs, and a repeated preprocessing run was idempotent.
 - Phase 3 local OCR/ASR adds optional HTTP processor services outside the main app container. OCR jobs write `ocr_text` artifacts for downloaded images; ASR jobs write `transcript` artifacts for downloaded audio/video. Source Telegram rows remain unchanged.
@@ -62,6 +62,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Phase 3 was deployed to the Proxmox Docker host through Git, passed Docker app healthcheck, passed PostgreSQL integration tests, built and started optional OCR/ASR containers, and completed production OCR/ASR smoke processing with 1 `ocr_text` artifact and 3 `transcript` artifacts.
 - Phase 4 adds optional Ollama-compatible embeddings and semantic search. Embeddings are stored as rebuildable derived data in `embeddings` plus `derived_artifacts.embedding_reference`, not in source Telegram rows. Embedding input consumes message text plus selected `derived_artifacts` such as normalized text, OCR text, and transcripts.
 - Phase 4 entry points are `/embed`, `/semantic`, `npm run embeddings:run`, and Docker `node dist/app/embeddings.js`.
+- Phase 4 was deployed to the Proxmox Docker host through Git, passed Docker app healthcheck, passed PostgreSQL integration tests, wrote 27 production embeddings and 27 `embedding_reference` artifacts, and passed semantic search smoke testing from the production app image.
 - Phase 5 is prepared but not started. Local LLM classification must use a replaceable provider boundary, validate structured JSON with Zod or JSON Schema, write proposed records/entities/relations, and never allow model services to write directly to PostgreSQL.
 
 ## Maintenance Rule
