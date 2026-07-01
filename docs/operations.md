@@ -42,6 +42,10 @@ Startup logs include a structured `Startup summary` entry with:
 - `maxAttachmentBytes`;
 - `maxAttachmentDownloadAttempts`;
 - `searchResultLimit`;
+- `embeddingServiceConfigured`;
+- `embeddingModel`;
+- `embeddingDimensions`;
+- `embeddingMaxInputChars`;
 - `botAcknowledgements`;
 - `allowedUserCount`;
 - `migrationSuccess`;
@@ -234,9 +238,9 @@ Defaults:
 
 OCR/ASR workers must keep writing only to `derived_artifacts` and must not mutate `messages`, `message_versions`, or `attachments` except through existing source ingestion/download paths.
 
-## Embeddings And Semantic Search
+## Ollama Configuration
 
-Embeddings are optional. Configure an Ollama-compatible HTTP endpoint in `.env`:
+Embeddings, local LLM classification, and image analysis are optional. Configure Ollama-compatible HTTP endpoints in `.env`:
 
 ```bash
 EMBEDDING_SERVICE_URL=http://192.168.1.156:11434
@@ -251,6 +255,8 @@ LLM_SERVICE_TIMEOUT_MS=600000
 LLM_MAX_INPUT_CHARS=20000
 LLM_IMAGE_MAX_ATTACHMENT_BYTES=26214400
 ```
+
+## Embeddings And Semantic Search
 
 Smoke-test Ollama from the Docker host:
 

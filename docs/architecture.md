@@ -2,7 +2,7 @@
 
 ## Goal
 
-The first milestone is a reliable Telegram-first personal inbox. The system stores original Telegram messages and files with enough metadata to support later AI processing. Heavy OCR/ASR and embedding generation are optional and isolated behind local or self-hosted processor services.
+The first milestone is a reliable Telegram-first personal inbox. The system stores original Telegram messages and files with enough metadata to support local AI processing. Heavy OCR/ASR, embedding generation, classification, and image analysis are optional and isolated behind local or self-hosted processor services.
 
 ## Stack Decisions
 
@@ -51,7 +51,6 @@ Phase 4 adds optional Ollama-compatible embeddings for semantic search. The app 
 - current message text;
 - `normalized_text` artifacts when available;
 - attachment file names;
-- selected attachment artifacts such as `ocr_text` and `transcript`.
 - selected attachment artifacts such as `ocr_text`, `transcript`, and `image_description`.
 
 The embedding vector is stored in the `embeddings` table as rebuildable derived data keyed by `(source_kind, source_id, provider, model)`. A matching `derived_artifacts.embedding_reference` row stores the provider, model, dimensions, and source content hash for auditability. Source Telegram rows remain unchanged.
@@ -73,15 +72,15 @@ Embedding reindexing is idempotent. Normal runs enqueue missing message jobs. Ex
 
 When Phase 5.1 image descriptions are added or changed, run embedding reindexing so semantic search can include visual descriptions.
 
-## Future Expansion
+## Current Extension Points
 
-The schema already includes placeholders for:
+The schema includes active extension points for:
 
 - bundles for grouping related source messages;
-- records for structured derived notes, tasks, bookmarks, deals, and events;
-- entities for people, projects, devices, services, companies, places;
+- records for proposed or accepted structured notes, tasks, bookmarks, deals, files, knowledge, ideas, and events;
+- entities for people, projects, devices, services, companies, places, and other named concepts;
 - relations between source and derived objects;
-- processing jobs for OCR, ASR, embeddings, previews, and LLM classification.
+- processing jobs for deterministic preprocessing, OCR, ASR, embeddings, image analysis, and LLM classification.
 
 Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes. Classification results are proposals in derived/structured tables rather than direct mutations of source Telegram rows.
 

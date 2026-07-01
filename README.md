@@ -1,6 +1,6 @@
 # favorites-to-wiki
 
-Self-hosted Telegram-first personal inbox: a reliable archive for notes, links, files, media, forwards, replies, and edited messages. Heavy OCR/ASR processing is optional and runs through separate local HTTP services.
+Self-hosted Telegram-first personal inbox: a reliable archive for notes, links, files, media, forwards, replies, and edited messages. Heavy OCR/ASR, embeddings, classification, and image analysis are optional and run through local or self-hosted services.
 
 ## Requirements
 
@@ -116,7 +116,7 @@ In Docker Compose production:
 docker compose run --rm --entrypoint node app dist/app/embeddings.js 100
 ```
 
-Use `--reindex` after changing the model or after rebuilding OCR/ASR artifacts:
+Use `--reindex` after changing the model or after rebuilding OCR/ASR/image-description artifacts:
 
 ```bash
 docker compose run --rm --entrypoint node app dist/app/embeddings.js 100 --reindex
@@ -159,7 +159,7 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 - `/start` - basic startup message.
 - `/help` - command summary.
 - `/recent` - last saved items.
-- `/status` - PostgreSQL, storage, and basic stats.
+- `/status` - PostgreSQL, storage, processing queues, embeddings, and proposal stats.
 - `/search query` - PostgreSQL full-text search over message text/captions and file names.
 - `/retry_attachments` - retry failed or pending attachment downloads that are due.
 - `/preprocess` - enqueue and run a small deterministic preprocessing batch.
@@ -262,6 +262,12 @@ Run the compiled image-analysis worker in Docker Compose:
 docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20
 ```
 
+Run it as a loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/image-analysis.js 20 --loop
+```
+
 Run local LLM classification once:
 
 ```bash
@@ -272,6 +278,12 @@ Run the compiled classification worker in Docker Compose:
 
 ```bash
 docker compose run --rm --entrypoint node app dist/app/classify.js 20
+```
+
+Run it as a loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/classify.js 20 --loop
 ```
 
 `npm run test:integration` requires a PostgreSQL database URL:

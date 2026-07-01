@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The project has a working first-pass Telegram-first inbox MVP. The codebase is no longer an empty repository: it has a TypeScript/Node.js application, grammY bot integration, PostgreSQL schema and migrations, Docker Compose deployment, local file storage, tests for deterministic logic, and project documentation.
+The project has a deployed Telegram-first personal inbox with local AI processing layers. It has a TypeScript/Node.js application, grammY bot integration, PostgreSQL schema and migrations, Docker Compose deployment, local file storage, deterministic preprocessing, optional OCR/ASR, semantic embeddings, local LLM classification, image analysis, tests, and project documentation.
 
 The remote Docker host was also validated:
 
@@ -13,8 +13,9 @@ The remote Docker host was also validated:
 - app service started with production Telegram credentials;
 - the first backlog Telegram text message from the allowed owner was ingested and stored in PostgreSQL.
 - real media/update smoke test passed: photos, documents, voice, video, and one edited text message were archived.
+- Phase 5/5.1 local AI smoke tests completed on production data with image descriptions, embedding reindexing, and proposed records.
 
-Latest committed work on `main`:
+Major committed work on `main`:
 
 - `3fce1b1 Build Telegram inbox MVP`
 - `d675c2d Run database migrations on startup`
@@ -28,12 +29,15 @@ Latest committed work on `main`:
 - `6946f4e Fix optional embedding dimensions parsing`
 - `f08bbf9 Fix embedding job payload typing`
 - `7914694 Fix embedding vector SQL binding`
+- `542caee Record phase 4 deployment validation`
+- `7e0c197 Skip empty media text embedding candidates`
 - `2b482f7 Implement local LLM classification`
 - `a682201 Bound Ollama JSON generation`
 - `808e896 Parse first JSON object from LLM responses`
 - `4cba71e Harden LLM classification schema`
 - `fbd4aa7 Normalize image analysis JSON`
 - `ba94003 Normalize classification JSON deviations`
+- `d78878f Document phase 5 deployment`
 
 ## Review Against The Original Plan
 
@@ -55,7 +59,7 @@ Latest committed work on `main`:
 - Added local file download with safe path construction, `.part` files, SHA-256 streaming, and max-size enforcement.
 - Added `/start`, `/help`, `/recent`, `/status`, and `/search`.
 - Added PostgreSQL full-text search plus `ILIKE` fallback over message text/captions and attachment names.
-- Added placeholder tables for `bundles`, `records`, `entities`, `relations`, and `processing_jobs`.
+- Added schema tables for `bundles`, `records`, `entities`, `relations`, and `processing_jobs`; `records`, `entities`, `relations`, and `processing_jobs` are now active Phase 5/worker tables.
 - Added Telegram Desktop importer: `npm run import:telegram -- /path/to/result.json`.
 - Added `docs/architecture.md`, `AGENTS.md`, and README setup/deployment instructions.
 - Added unit tests for allowlist, attachment path safety, and message versioning policy.
@@ -73,6 +77,11 @@ Latest committed work on `main`:
 - Added PostgreSQL integration tests for migration idempotency, concurrent duplicate first delivery, concurrent identical edits, and concurrent different edits.
 - Added Phase 2 preparation primitives: `derived_artifacts` for rebuildable outputs and lock-aware `processing_jobs` claim semantics.
 - Added Phase 2 deterministic preprocessing implementation: normalized text, extracted metadata, safe link previews, file metadata, file previews, worker CLI, and Telegram `/preprocess`.
+- Added Phase 3 optional OCR/ASR workers and `ocr_text`/`transcript` artifacts.
+- Added Phase 4 Ollama-compatible embeddings and Telegram `/semantic` search.
+- Added Phase 5 Ollama-compatible LLM classification with proposed records/entities/relations and `/proposals`.
+- Added Phase 5.1 image analysis with `image_description` artifacts consumed by embedding reindexing.
+- Added and exercised startup logging, deployment runbook, backup/restore documentation, Docker healthcheck, and production smoke-test procedures on the Proxmox host.
 
 ### Partially Completed
 
@@ -84,7 +93,6 @@ Latest committed work on `main`:
 - **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
 - **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are deferred to the Telegram UX phase.
 - **Deployment:** Docker build, migrations, app startup, healthchecks, and real Telegram smoke tests are validated on the Proxmox Docker host.
-- **Operations:** startup logging, deployment runbook, and backup/restore documentation are not complete enough to declare the first product slice done.
 
 ### Not Started By Design
 

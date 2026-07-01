@@ -27,10 +27,10 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - File paths are relative, sanitized, extension-safe, and written through `.part` files before final rename.
 - `MAX_ATTACHMENT_BYTES` controls the download limit.
 
-## MVP Behavior
+## Bot Behavior
 
 - Bot accepts text, links in text, photos, documents, voice messages, videos, captions, forwards, replies, and edited messages.
-- Commands: `/start`, `/help`, `/recent`, `/status`, `/search`.
+- Commands: `/start`, `/help`, `/recent`, `/status`, `/search`, `/retry_attachments`, `/preprocess`, `/process_media`, `/embed`, `/semantic`, `/analyze_images`, `/classify`, and `/proposals`.
 - Save acknowledgements are short and can be disabled with `BOT_ACKNOWLEDGEMENTS=false`.
 
 ## Known Gaps
