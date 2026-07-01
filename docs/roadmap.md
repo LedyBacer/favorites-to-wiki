@@ -256,9 +256,10 @@ Priority: medium.
 
 - Completed: define the initial supported Telegram Desktop JSON export subset for dry-run analysis.
 - Completed: add dry-run parsing, unsupported-type reporting, and summary counts.
-- Parse exported messages into the same message model.
+- Completed: map supported exported messages into `SaveMessageInput`-compatible records.
+- Completed: map exported file/photo paths into deterministic attachment inputs for later import.
 - Map exported files into attachment records.
-- Preserve export source metadata without storing unsafe raw blobs.
+- Completed: preserve curated export source metadata in mapped message inputs.
 - Make repeated import idempotent.
 - Completed: add dry-run mode:
 

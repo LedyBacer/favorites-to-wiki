@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  mapTelegramDesktopExportToSaveInputs,
   parseTelegramDesktopExportJson,
   summarizeTelegramDesktopExport,
 } from "../src/import/telegram-export.js";
@@ -61,5 +62,74 @@ describe("Telegram Desktop export parser", () => {
       replyMessages: 1,
       unsupportedTypes: ["service"],
     });
+  });
+
+  it("maps supported export messages into SaveMessageInput records", () => {
+    const mapped = mapTelegramDesktopExportToSaveInputs(
+      {
+        name: "Saved Messages",
+        type: "saved_messages",
+        id: 42,
+        messages: [
+          {
+            id: 10,
+            type: "message",
+            date_unixtime: 1782870000,
+            edited_unixtime: 1782870300,
+            text: "remember this",
+            forwarded_from: "Alice",
+          },
+          {
+            id: 11,
+            type: "message",
+            date_unixtime: 1782870600,
+            file: "files/report.pdf",
+            mime_type: "application/pdf",
+            reply_to_message_id: 10,
+          },
+        ],
+      },
+      {
+        telegramChatId: -9001,
+        telegramUserId: 328430137,
+        sourceFilePath: "/exports/result.json",
+      },
+    );
+
+    expect(mapped).toHaveLength(2);
+    expect(mapped[0]?.input).toMatchObject({
+      telegramChatId: -9001,
+      telegramMessageId: 10,
+      telegramUserId: 328430137,
+      text: "remember this",
+      messageType: "text",
+      forward: {
+        originType: "telegram_desktop_export",
+        senderName: "Alice",
+      },
+      metadata: {
+        source: "telegram_desktop_export",
+        sourceChatName: "Saved Messages",
+        sourceChatType: "saved_messages",
+        sourceChatId: 42,
+        sourceFilePath: "/exports/result.json",
+        sourceMessageId: 10,
+      },
+    });
+    expect(mapped[0]?.input.telegramDate.toISOString()).toBe("2026-07-01T01:40:00.000Z");
+    expect(mapped[0]?.input.telegramEditDate?.toISOString()).toBe("2026-07-01T01:45:00.000Z");
+
+    expect(mapped[1]?.input.replyToTelegramMessageId).toBe(10);
+    expect(mapped[1]?.attachmentSourcePath).toBe("files/report.pdf");
+    expect(mapped[1]?.input.attachments).toEqual([
+      {
+        telegramFileId:
+          "telegram-export:57808b97ca03ea300e03162cebf220297cb291cd3f68da3b7af785869ca188a6",
+        telegramFileUniqueId:
+          "telegram-export:57808b97ca03ea300e03162cebf220297cb291cd3f68da3b7af785869ca188a6",
+        originalFileName: "report.pdf",
+        mimeType: "application/pdf",
+      },
+    ]);
   });
 });

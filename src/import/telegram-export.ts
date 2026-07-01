@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { SaveMessageInput } from "../domain/messages/types.js";
 
 const textPartSchema = z.union([
   z.string(),
@@ -70,6 +73,19 @@ export interface TelegramExportDryRunSummary {
   unsupportedTypes: string[];
 }
 
+export interface TelegramExportImportOptions {
+  telegramChatId: number;
+  telegramUserId: number;
+  sourceFilePath?: string | undefined;
+  sourceName?: string | undefined;
+}
+
+export interface MappedTelegramExportMessage {
+  sourceMessageId: number;
+  input: SaveMessageInput;
+  attachmentSourcePath?: string | undefined;
+}
+
 type TelegramExport = z.infer<typeof exportSchema>;
 type TelegramExportMessage = z.infer<typeof exportMessageSchema>;
 
@@ -97,6 +113,48 @@ export function summarizeTelegramDesktopExport(input: unknown): TelegramExportDr
     replyMessages: supportedMessages.filter((message) => message.replyToMessageId).length,
     unsupportedTypes,
   };
+}
+
+export function mapTelegramDesktopExportToSaveInputs(
+  input: unknown,
+  options: TelegramExportImportOptions,
+): MappedTelegramExportMessage[] {
+  const parsed = exportSchema.parse(input);
+  const sourceName = options.sourceName ?? parsed.name;
+
+  return parseTelegramDesktopExportJson(parsed).map((message) => {
+    const attachment = message.attachmentPath
+      ? {
+          telegramFileId: exportAttachmentId(message.attachmentPath),
+          telegramFileUniqueId: exportAttachmentId(message.attachmentPath),
+          originalFileName: basename(message.attachmentPath),
+          mimeType: message.mimeType,
+        }
+      : undefined;
+
+    return {
+      sourceMessageId: message.id,
+      input: {
+        telegramChatId: options.telegramChatId,
+        telegramMessageId: message.id,
+        telegramUserId: options.telegramUserId,
+        telegramDate: message.date ?? new Date(0),
+        text: message.text,
+        messageType: message.messageType,
+        forward: message.forwardedFrom
+          ? {
+              originType: "telegram_desktop_export",
+              senderName: message.forwardedFrom,
+            }
+          : undefined,
+        replyToTelegramMessageId: message.replyToMessageId,
+        telegramEditDate: message.editedDate,
+        metadata: exportMetadata(message, parsed, options, sourceName),
+        attachments: attachment ? [attachment] : [],
+      },
+      attachmentSourcePath: message.attachmentPath,
+    };
+  });
 }
 
 function parseExportMessage(
@@ -159,6 +217,28 @@ function exportDate(unixTime: string | number | undefined, fallback: string | un
   if (!fallback) return undefined;
   const date = new Date(fallback);
   return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function exportAttachmentId(path: string) {
+  return `telegram-export:${createHash("sha256").update(path).digest("hex")}`;
+}
+
+function exportMetadata(
+  message: ParsedTelegramExportMessage,
+  exportData: TelegramExport,
+  options: TelegramExportImportOptions,
+  sourceName: string | undefined,
+): Record<string, unknown> {
+  return {
+    source: "telegram_desktop_export",
+    sourceChatName: sourceName,
+    sourceChatType: exportData.type,
+    sourceChatId: exportData.id,
+    sourceFilePath: options.sourceFilePath,
+    sourceMessageId: message.id,
+    sourceMessageType: message.exportType,
+    sourceAttachmentPath: message.attachmentPath,
+  };
 }
 
 function unsupportedMessageTypes(exportData: TelegramExport) {
