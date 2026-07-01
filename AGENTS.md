@@ -54,7 +54,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - `processing_jobs` has lock ownership, lock timestamps, retry limits, and completion timestamps for future worker claim semantics.
 - Phase 2 deterministic preprocessing writes `normalized_text`, `extracted_metadata`, `link_preview`, `file_metadata`, and `file_preview` artifacts. Link previews must not fetch external URLs.
 - Preprocessing entry points are `/preprocess` and `npm run preprocess:run`; Docker production can run `docker compose run --rm --entrypoint node app dist/app/preprocess.js 100`.
-- Roadmap phases 1.1 through 5.1 are complete in code; Phase 5/5.1 production deployment validation is tracked in `docs/roadmap.md`.
+- Roadmap phases 1.1 through 5.1 are complete and deployed.
 - Phase 1.6 was deployed to the Proxmox Docker host, passed Docker healthcheck, passed PostgreSQL integration tests against a disposable database, and completed a PostgreSQL plus storage backup/restore smoke test.
 - Phase 2 was deployed to the Proxmox Docker host, passed Docker healthcheck, processed production archive data into 102 derived artifacts with no failed jobs, and a repeated preprocessing run was idempotent.
 - Phase 3 local OCR/ASR adds optional HTTP processor services outside the main app container. OCR jobs write `ocr_text` artifacts for downloaded images; ASR jobs write `transcript` artifacts for downloaded audio/video. Source Telegram rows remain unchanged.
@@ -66,6 +66,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Phase 5 local LLM classification uses an Ollama-compatible `/api/chat` provider boundary. Model output is requested with JSON Schema, validated with Zod, stored in `derived_artifacts.llm_classification`, and upserted as proposed `records`, `entities`, and `relations` with stable `proposal_key` values and `metadata.status = 'proposed'`. Model services never write directly to PostgreSQL.
 - Phase 5.1 image analysis uses a multimodal Ollama-compatible model such as `qwen3.5:4b` to write rebuildable `derived_artifacts.image_description` rows for downloaded image attachments. Source Telegram rows remain unchanged. Run embedding reindexing after image analysis when semantic search should include visual content.
 - Phase 5/5.1 entry points are `/classify`, `/proposals`, `/analyze_images`, `npm run classify:run`, `npm run images:analyze`, Docker `node dist/app/classify.js`, and Docker `node dist/app/image-analysis.js`.
+- Phase 5/5.1 was deployed to the Proxmox Docker host through Git, passed Docker app healthcheck, passed PostgreSQL integration tests, wrote 8 production `image_description` artifacts, reindexed 28 embeddings with 8 changed vectors, and wrote 29 production `llm_classification` artifacts plus 37 proposed records with no remaining failed Phase 5 jobs.
 
 ## Maintenance Rule
 

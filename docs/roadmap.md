@@ -28,7 +28,12 @@ Latest committed work on `main`:
 - `6946f4e Fix optional embedding dimensions parsing`
 - `f08bbf9 Fix embedding job payload typing`
 - `7914694 Fix embedding vector SQL binding`
-- Phase 5 work in this change adds local LLM classification plus a Phase 5.1 image-description layer.
+- `2b482f7 Implement local LLM classification`
+- `a682201 Bound Ollama JSON generation`
+- `808e896 Parse first JSON object from LLM responses`
+- `4cba71e Harden LLM classification schema`
+- `fbd4aa7 Normalize image analysis JSON`
+- `ba94003 Normalize classification JSON deviations`
 
 ## Review Against The Original Plan
 
@@ -503,7 +508,7 @@ Exit criteria:
 
 ### Readiness For Phase 5
 
-Phase 5 has been implemented in code and is ready for production deployment validation.
+Phase 5 has been implemented, deployed, and production-smoke-tested.
 
 Prepared foundations:
 
@@ -523,7 +528,7 @@ Phase 5 guardrails:
 
 ### Phase 5 - Local LLM Classification
 
-Status: implemented in code; deployment validation pending in this change.
+Status: complete.
 
 - Completed: add replaceable Ollama-compatible `/api/chat` provider boundary.
 - Completed: start with local Ollama and configurable `LLM_SERVICE_URL`, `LLM_MODEL`, timeout, and input-size bounds.
@@ -541,15 +546,22 @@ Status: implemented in code; deployment validation pending in this change.
 
 Exit criteria:
 
-- pending: migrations apply on Proxmox;
-- pending: Docker app healthcheck passes after deployment;
-- pending: PostgreSQL integration tests pass against disposable `favorites_integration` on Proxmox;
-- pending: production classification batch writes proposed records/entities/relations with no source row mutation;
-- pending: repeated classification run is idempotent unless `reclassify` is requested.
+- completed: migrations applied on Proxmox;
+- completed: Docker app healthcheck passed after deployment;
+- completed: PostgreSQL integration tests passed against disposable `favorites_integration` on Proxmox;
+- completed: production classification batch wrote proposed records and classification artifacts with no source row mutation:
+  - 29 `llm_classification` jobs completed;
+  - 29 `llm_classification` artifacts written;
+  - 37 proposed records written;
+  - 0 remaining failed or pending Phase 5 classification jobs.
+- completed: repeated classification run was idempotent:
+  - 0 jobs created;
+  - 0 jobs claimed;
+  - 0 proposed rows written.
 
 ### Phase 5.1 - Image Data Layer
 
-Status: implemented in code; deployment validation pending in this change.
+Status: complete.
 
 - Completed: add image-analysis jobs for downloaded image attachments through `image_analysis`.
 - Completed: use a multimodal Ollama-compatible vision model such as `qwen3.5:4b`.
@@ -564,9 +576,17 @@ Status: implemented in code; deployment validation pending in this change.
 
 Exit criteria:
 
-- pending: production image-analysis batch writes `image_description` artifacts with no source row mutation;
-- pending: embedding reindex after image analysis includes the new visual descriptions;
-- pending: repeated image-analysis run is idempotent unless `reprocess` is requested.
+- completed: production image-analysis batch wrote `image_description` artifacts with no source row mutation:
+  - 8 `image_analysis` jobs completed;
+  - 8 `image_description` artifacts written;
+  - 0 remaining failed or pending Phase 5.1 image jobs.
+- completed: embedding reindex after image analysis included the new visual descriptions:
+  - 28 embedding jobs completed;
+  - 8 embeddings rewritten because the source content hash changed.
+- completed: repeated image-analysis run was idempotent:
+  - 0 jobs created;
+  - 0 jobs claimed;
+  - 0 artifacts written.
 
 ## Definition Of Done For The First Product Slice
 
