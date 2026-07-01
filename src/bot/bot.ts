@@ -7,6 +7,10 @@ import {
   AttachmentService,
   type AttachmentDownloadSummary,
 } from "../domain/attachments/attachment-service.js";
+import {
+  MediaProcessingService,
+  type MediaProcessingSummary,
+} from "../domain/media-processing/media-processing-service.js";
 import { MessageService } from "../domain/messages/message-service.js";
 import {
   PreprocessingService,
@@ -56,6 +60,17 @@ function formatPreprocessingSummary(summary: PreprocessingSummary) {
   ].join("\n");
 }
 
+function formatMediaProcessingSummary(summary: MediaProcessingSummary) {
+  return [
+    "OCR/ASR обработка завершена",
+    `Создано задач: ${summary.jobsCreated}`,
+    `Взято задач: ${summary.jobsClaimed}`,
+    `Завершено: ${summary.jobsCompleted}`,
+    `Ошибок: ${summary.jobsFailed}`,
+    `Артефактов записано: ${summary.artifactsWritten}`,
+  ].join("\n");
+}
+
 export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const bot = new Bot<BotContext>(config.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(hydrateFiles(config.TELEGRAM_BOT_TOKEN));
@@ -63,6 +78,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   const messageService = new MessageService(db);
   const searchService = new SearchService(db);
   const preprocessingService = new PreprocessingService(db);
+  const mediaProcessingService = new MediaProcessingService(db, config);
   const storage = new LocalStorage(config.STORAGE_ROOT);
   const attachmentService = new AttachmentService(
     db,
@@ -102,6 +118,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
         "/recent 10 - последние сохраненные с лимитом",
         "/status - состояние хранилища и базы",
         "/preprocess - запустить пакет детерминированной предобработки",
+        "/process_media - запустить пакет OCR/ASR обработки",
       ].join("\n"),
     );
   });
@@ -122,6 +139,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
       await storage.ensureReady();
       const stats = await messageService.stats();
       const preprocessingStats = await preprocessingService.stats();
+      const mediaProcessingStats = await mediaProcessingService.stats();
       await ctx.reply(
         [
           "Статус: ok",
@@ -137,7 +155,12 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
           `Предобработка выполняется: ${preprocessingStats.running_count}`,
           `Предобработка завершена: ${preprocessingStats.completed_count}`,
           `Предобработка ошибок: ${preprocessingStats.failed_count}`,
+          `OCR/ASR ожидает: ${mediaProcessingStats.pending_count}`,
+          `OCR/ASR выполняется: ${mediaProcessingStats.running_count}`,
+          `OCR/ASR завершено: ${mediaProcessingStats.completed_count}`,
+          `OCR/ASR ошибок: ${mediaProcessingStats.failed_count}`,
           `Производных артефактов: ${preprocessingStats.artifact_count}`,
+          `OCR/ASR артефактов: ${mediaProcessingStats.artifact_count}`,
         ].join("\n"),
       );
     } catch (error) {
@@ -167,6 +190,17 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     const { limit } = parseLimitPrefix(ctx.match, 20, 100);
     const summary = await preprocessingService.enqueueAndProcess(`telegram-${ctx.from?.id}`, limit);
     await ctx.reply(formatPreprocessingSummary(summary));
+  });
+
+  bot.command("process_media", async (ctx) => {
+    const { limit, rest } = parseLimitPrefix(ctx.match, 5, 50);
+    const mode = rest === "ocr" || rest === "asr" ? rest : "all";
+    const summary = await mediaProcessingService.enqueueAndProcess(
+      `telegram-${ctx.from?.id}`,
+      limit,
+      mode,
+    );
+    await ctx.reply(formatMediaProcessingSummary(summary));
   });
 
   bot.command("search", async (ctx) => {

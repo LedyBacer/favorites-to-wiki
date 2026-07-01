@@ -10,6 +10,10 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://favorites:favorites@postgres:5432/favorites
+      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-http://ocr:8000}
+      OCR_SERVICE_API_KEY: ${OCR_SERVICE_API_KEY:-}
+      ASR_SERVICE_URL: ${ASR_SERVICE_URL:-http://asr:8000}
+      ASR_SERVICE_API_KEY: ${ASR_SERVICE_API_KEY:-}
     volumes:
       - telegram_files:/app/data/storage
     healthcheck:
@@ -37,6 +41,37 @@ services:
       retries: 5
     restart: unless-stopped
 
+  ocr:
+    profiles:
+      - ocr
+    build:
+      context: docker/ocr-service
+    environment:
+      PADDLEOCR_RECOGNITION_MODEL: ${PADDLEOCR_RECOGNITION_MODEL:-eslav_PP-OCRv5_mobile_rec}
+      PADDLEOCR_DETECTION_MODEL: ${PADDLEOCR_DETECTION_MODEL:-PP-OCRv5_mobile_det}
+      PADDLEOCR_DEVICE: ${PADDLEOCR_DEVICE:-cpu}
+      OCR_SERVICE_API_KEY: ${OCR_SERVICE_API_KEY:-}
+    volumes:
+      - ocr_models:/models
+    restart: unless-stopped
+
+  asr:
+    profiles:
+      - asr
+    build:
+      context: docker/asr-service
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-ru}
+      ASR_SERVICE_API_KEY: ${ASR_SERVICE_API_KEY:-}
+    volumes:
+      - asr_models:/models
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   telegram_files:
+  ocr_models:
+  asr_models:

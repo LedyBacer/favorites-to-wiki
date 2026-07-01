@@ -23,6 +23,7 @@ Latest committed work on `main`:
 - `8b0d3d9 Complete operations prep for phase 2`
 - `cdd5d4d Implement deterministic preprocessing`
 - `13496f4 Allow larger preprocessing batches`
+- Phase 3 local OCR/ASR implementation is in progress locally and pending deployment verification.
 
 ## Review Against The Original Plan
 
@@ -80,8 +81,6 @@ Latest committed work on `main`:
 These were explicitly excluded from the first phase and should remain out until the archive layer is stable:
 
 - Ollama and local LLM integration;
-- OCR;
-- Whisper or other ASR;
 - embeddings and vector search;
 - external AI providers;
 - web UI;
@@ -392,11 +391,54 @@ Exit criteria:
 
 ### Phase 3 - Local OCR/ASR
 
-- Status: ready to start.
-- Add OCR jobs for screenshots/images.
-- Add transcription jobs for voice/video audio.
-- Store outputs as derived artifacts, not as replacements for original messages.
-- Keep all processing local by default.
+Status: implementation complete locally; deployment verification pending.
+
+- Completed: add OCR jobs for downloaded screenshots/images through `media_ocr`.
+- Completed: add transcription jobs for downloaded voice/video/audio through `media_asr`.
+- Completed: store outputs as derived artifacts:
+  - `ocr_text`;
+  - `transcript`.
+- Completed: keep source Telegram rows unchanged.
+- Completed: add an app-side HTTP provider boundary so processors can run locally or on another machine.
+- Completed: add optional Docker Compose `ocr` profile with a PaddleOCR service.
+- Completed: default OCR recognition model to `eslav_PP-OCRv5_mobile_rec`, covering Russian, Belarusian, Ukrainian, English, and numbers.
+- Completed: add optional Docker Compose `asr` profile with a faster-whisper service.
+- Completed: default ASR to `large-v3`, Russian language, CPU `int8`; allow replacing with a smaller or remote model through env.
+- Completed: add entry points:
+  - Telegram `/process_media`;
+  - `npm run media:process`;
+  - Docker `node dist/app/media-process.js`.
+- Completed: add unit tests for OCR/ASR candidate detection.
+- Pending deployment: deploy Phase 3 to the Proxmox Docker host through Git.
+- Pending deployment: verify Docker app healthcheck after deployment.
+- Pending deployment: verify `docker compose config` and optional OCR/ASR service startup on the Proxmox Docker host.
+- Pending deployment: run PostgreSQL integration tests against a disposable `favorites_integration` database on the Proxmox PostgreSQL service.
+- Pending deployment: run a production media-processing smoke batch after at least one image/audio attachment is available and the optional services are started.
+
+Exit criteria:
+
+- OCR/ASR processing can be run repeatedly without duplicate jobs or source row mutation;
+- optional processor containers are not built or started during normal app-only deployment;
+- processor URLs can point to local Compose services or another machine;
+- outputs are rebuildable derived artifacts;
+- app deployment remains healthy without OCR/ASR containers running.
+
+### Readiness For Phase 4
+
+Ready foundations after Phase 3 implementation:
+
+- deterministic text artifacts exist for message text;
+- OCR text and transcripts have the same rebuildable `derived_artifacts` boundary;
+- media processing uses the existing PostgreSQL job claim/retry semantics;
+- all heavy model execution is replaceable through service URLs;
+- source Telegram rows remain the immutable archive.
+
+Before starting Phase 4:
+
+- deploy Phase 3 through Git to Proxmox;
+- confirm normal app health without optional OCR/ASR profiles;
+- run at least one OCR or ASR smoke job if suitable media exists;
+- record Phase 3 deployment status here.
 
 ### Phase 4 - Embeddings And Semantic Search
 

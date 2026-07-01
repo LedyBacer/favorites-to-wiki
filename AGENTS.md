@@ -36,7 +36,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 ## Known Gaps
 
 - No webhook HTTP server.
-- No OCR, ASR, embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
+- No embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
 - Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, local export file storage, idempotent repeated imports, and unavailable attachment reporting through `skipped_too_large`.
 - PostgreSQL integration tests exist under `tests/integration`, but they require an explicit `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json` so only `src` is emitted.
@@ -57,10 +57,23 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Roadmap phases 1.1 through 2 are complete; current planned work is Phase 3 local OCR/ASR.
 - Phase 1.6 was deployed to the Proxmox Docker host, passed Docker healthcheck, passed PostgreSQL integration tests against a disposable database, and completed a PostgreSQL plus storage backup/restore smoke test.
 - Phase 2 was deployed to the Proxmox Docker host, passed Docker healthcheck, processed production archive data into 102 derived artifacts with no failed jobs, and a repeated preprocessing run was idempotent.
+- Phase 3 local OCR/ASR adds optional HTTP processor services outside the main app container. OCR jobs write `ocr_text` artifacts for downloaded images; ASR jobs write `transcript` artifacts for downloaded audio/video. Source Telegram rows remain unchanged.
+- The bundled OCR service uses PaddleOCR with `eslav_PP-OCRv5_mobile_rec` by default for Russian, Belarusian, Ukrainian, English, and numbers. The bundled ASR service uses faster-whisper `large-v3` with Russian by default. Both are optional Docker Compose profiles and can be replaced by remote services through `OCR_SERVICE_URL` and `ASR_SERVICE_URL`.
+- Phase 3 application code, docs, and tests are implemented locally; deployment verification on Proxmox is required before Phase 3 is complete and Phase 4 starts.
 
 ## Maintenance Rule
 
 Update this file whenever architecture, data ownership, persistence behavior, or module boundaries change materially.
+
+Before starting or continuing implementation work, read the current relevant Markdown docs and treat them as the project contract:
+
+- `AGENTS.md` for current architecture, ownership boundaries, deployment rules, and active phase context;
+- `docs/roadmap.md` for completed work, phase status, exit criteria, and next planned work;
+- `docs/architecture.md` for data boundaries and module responsibilities;
+- `docs/operations.md` for deployment, healthcheck, backup, restore, and production command procedures;
+- `README.md` for user-facing setup and command documentation.
+
+Keep these docs current with the code. Any change that materially affects architecture, data ownership, persistence behavior, module boundaries, runtime commands, deployment, operations, or phase status must update the relevant Markdown docs in the same change.
 
 Deployment updates to the Proxmox server must be delivered through Git: commit locally, push, then update the server with `git pull` before rebuilding/restarting Docker. Do not copy project files to the server manually as a stage-completion path.
 

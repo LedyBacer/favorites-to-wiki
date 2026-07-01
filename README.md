@@ -1,6 +1,6 @@
 # favorites-to-wiki
 
-Self-hosted Telegram-first personal inbox: a reliable archive for notes, links, files, media, forwards, replies, and edited messages. AI processing is intentionally out of scope for the first milestone.
+Self-hosted Telegram-first personal inbox: a reliable archive for notes, links, files, media, forwards, replies, and edited messages. Heavy OCR/ASR processing is optional and runs through separate local HTTP services.
 
 ## Requirements
 
@@ -24,6 +24,8 @@ Edit `.env`:
 - `STORAGE_ROOT` - local file storage directory.
 - `MAX_ATTACHMENT_BYTES` - max Telegram file size to download.
 - `BOT_ACKNOWLEDGEMENTS` - set `false` to disable save confirmations.
+- `OCR_SERVICE_URL` - optional OCR HTTP service URL.
+- `ASR_SERVICE_URL` - optional ASR HTTP service URL.
 
 Start PostgreSQL:
 
@@ -55,6 +57,15 @@ PostgreSQL data is stored in the `postgres_data` volume. Telegram files are stor
 
 `docker-compose.yml` overrides `DATABASE_URL` for the app container to use the `postgres` service hostname. Keep `.env` with `localhost` when running the bot directly on the host.
 
+Optional OCR and ASR services are behind Docker Compose profiles and are not built or started by the normal app deployment:
+
+```bash
+docker compose --profile ocr up -d ocr
+docker compose --profile asr up -d asr
+```
+
+The OCR service defaults to PaddleOCR with `eslav_PP-OCRv5_mobile_rec`, covering Russian, Belarusian, Ukrainian, English, and numbers. The ASR service defaults to faster-whisper `large-v3` with Russian transcription. Model caches live in `ocr_models` and `asr_models` volumes. `OCR_SERVICE_URL` and `ASR_SERVICE_URL` can point to another machine instead of the local Compose services.
+
 ## Telegram Bot Setup
 
 1. Open Telegram and message `@BotFather`.
@@ -73,6 +84,9 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 - `/search query` - PostgreSQL full-text search over message text/captions and file names.
 - `/retry_attachments` - retry failed or pending attachment downloads that are due.
 - `/preprocess` - enqueue and run a small deterministic preprocessing batch.
+- `/process_media` - enqueue and run a small OCR/ASR batch.
+- `/process_media 10 ocr` - OCR-only batch.
+- `/process_media 10 asr` - ASR-only batch.
 
 ## Development Commands
 
@@ -84,6 +98,7 @@ npm run test:integration
 npm run build
 npm run attachments:retry
 npm run preprocess:run
+npm run media:process
 ```
 
 In Docker Compose production, run the compiled retry entry point inside the app image:
@@ -108,6 +123,24 @@ Run it as a loop when you want a continuously draining worker:
 
 ```bash
 docker compose run --rm --entrypoint node app dist/app/preprocess.js 100 --loop
+```
+
+Run optional OCR/ASR processing once:
+
+```bash
+npm run media:process -- 20 --mode=all
+```
+
+Run the compiled media worker in Docker Compose:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=all
+```
+
+Run it as a loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=all --loop
 ```
 
 `npm run test:integration` requires a PostgreSQL database URL:
@@ -170,10 +203,12 @@ Core modules:
 - `src/import` - Telegram Desktop export importer.
 - `src/domain/processing` - PostgreSQL processing job claim/lock primitives for future workers.
 - `src/domain/preprocessing` - deterministic normalized text, metadata, safe preview, and file metadata artifacts.
+- `src/domain/media-processing` - optional OCR/ASR job enqueueing, external processor clients, and derived artifacts.
 
 ## Current Limitations
 
 - Long polling only; no webhook server yet.
-- No OCR, ASR, embeddings, LLM, reminders, web UI, or external AI calls.
+- No embeddings, LLM, reminders, web UI, or external AI calls.
+- OCR/ASR require optional local or remote HTTP processor services.
 - Integration tests require `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json`; test files are not emitted to `dist`.

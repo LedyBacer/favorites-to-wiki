@@ -158,3 +158,71 @@ Future workers must:
 - leave original Telegram source rows unchanged.
 
 Phase 2 link and file previews are deliberately safe and deterministic. They do not fetch external URLs. Link previews are derived from URL structure, and file previews are derived from attachment rows, MIME type, filename, local path, size, and SHA-256 availability.
+
+## Optional OCR/ASR Services
+
+OCR and ASR are optional Docker Compose profiles. A normal app deployment does not build or start these containers.
+
+Start OCR locally on the Docker host:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose --profile ocr up -d ocr
+docker compose ps ocr
+docker compose logs --tail=100 ocr
+```
+
+Start ASR locally on the Docker host:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose --profile asr up -d asr
+docker compose ps asr
+docker compose logs --tail=100 asr
+```
+
+Run one OCR/ASR processing batch:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=all
+```
+
+Run only OCR or only ASR:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=ocr
+docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=asr
+```
+
+Run a continuous worker loop:
+
+```bash
+docker compose run --rm --entrypoint node app dist/app/media-process.js 20 --mode=all --loop
+```
+
+The same small batch path is available from Telegram through `/process_media`.
+
+To run processors on another machine, deploy any service that implements the same HTTP contract and point the app environment to it:
+
+```bash
+OCR_SERVICE_URL=http://ocr-host:8000
+ASR_SERVICE_URL=http://asr-host:8000
+```
+
+Optional bearer secrets can be set with `OCR_SERVICE_API_KEY` and `ASR_SERVICE_API_KEY`; the app sends them as `Authorization: Bearer ...`.
+
+Model storage:
+
+- PaddleOCR model cache: `ocr_models` volume;
+- faster-whisper/Hugging Face cache: `asr_models` volume.
+
+Defaults:
+
+- OCR recognition model: `eslav_PP-OCRv5_mobile_rec`;
+- OCR detection model: `PP-OCRv5_mobile_det`;
+- ASR model: `large-v3`;
+- ASR language: `ru`;
+- CPU compute type: `int8`.
+
+OCR/ASR workers must keep writing only to `derived_artifacts` and must not mutate `messages`, `message_versions`, or `attachments` except through existing source ingestion/download paths.

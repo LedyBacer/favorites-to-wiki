@@ -25,10 +25,40 @@ const envSchema = z.object({
     .default("true")
     .transform((value) => value === "true" || value === "1"),
   SEARCH_RESULT_LIMIT: z.coerce.number().int().min(1).max(20).default(5),
+  OCR_SERVICE_URL: emptyStringToUndefined(z.string().url().optional()),
+  OCR_SERVICE_API_KEY: emptyStringToUndefined(z.string().optional()),
+  OCR_SERVICE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(30 * 60 * 1000)
+    .default(300000),
+  OCR_MAX_ATTACHMENT_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(25 * 1024 * 1024),
+  ASR_SERVICE_URL: emptyStringToUndefined(z.string().url().optional()),
+  ASR_SERVICE_API_KEY: emptyStringToUndefined(z.string().optional()),
+  ASR_SERVICE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(2 * 60 * 60 * 1000)
+    .default(1800000),
+  ASR_MAX_ATTACHMENT_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(500 * 1024 * 1024),
   LOG_LEVEL: z.string().default("info"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
+
+function emptyStringToUndefined<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((value) => (value === "" ? undefined : value), schema);
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.parse(env);

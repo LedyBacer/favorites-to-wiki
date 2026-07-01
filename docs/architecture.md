@@ -2,7 +2,7 @@
 
 ## Goal
 
-The first milestone is a reliable Telegram-first personal inbox. The system stores original Telegram messages and files with enough metadata to support later AI processing, but it does not classify, summarize, OCR, transcribe, or call external AI providers yet.
+The first milestone is a reliable Telegram-first personal inbox. The system stores original Telegram messages and files with enough metadata to support later AI processing. Heavy OCR/ASR is optional and isolated behind local or self-hosted HTTP processor services.
 
 ## Stack Decisions
 
@@ -79,3 +79,31 @@ The worker upserts artifacts idempotently into `derived_artifacts`:
 - `file_preview`.
 
 This prepares Phase 3 OCR/ASR by establishing the worker pattern and artifact boundary before any heavier local media processing is introduced.
+
+## Phase 3 OCR/ASR
+
+Phase 3 keeps OCR and speech recognition outside the main Node.js app container. The app enqueues and claims PostgreSQL `processing_jobs`, reads already downloaded local attachments from `STORAGE_ROOT`, sends the file bytes to an HTTP processor, and stores validated results in `derived_artifacts`.
+
+Job types:
+
+- `media_ocr` for downloaded image attachments;
+- `media_asr` for downloaded audio and video attachments.
+
+Artifact types:
+
+- `ocr_text`;
+- `transcript`.
+
+The source Telegram tables remain unchanged. OCR/ASR outputs are rebuildable derived artifacts keyed to the source attachment. The processor URL is configurable, so the OCR or ASR service can run in Docker Compose on the same host or on a separate, more powerful machine.
+
+The bundled optional processor containers are:
+
+- PaddleOCR for OCR, defaulting to `eslav_PP-OCRv5_mobile_rec` for Russian, Belarusian, Ukrainian, English, and numbers;
+- faster-whisper for ASR, defaulting to `large-v3`, CPU `int8`, and Russian transcription.
+
+The application boundary is a small HTTP contract:
+
+- `POST /ocr` with multipart `file`, returning `{ text, language, model, lines }`;
+- `POST /transcribe` with multipart `file`, returning `{ text, language, languageProbability, durationSeconds, model, segments }`.
+
+Phase 4 embeddings should consume source text plus selected derived artifacts through this same rebuildable boundary instead of writing embedding data into source Telegram rows.
