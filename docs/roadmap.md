@@ -23,7 +23,7 @@ Latest committed work on `main`:
 - `8b0d3d9 Complete operations prep for phase 2`
 - `cdd5d4d Implement deterministic preprocessing`
 - `13496f4 Allow larger preprocessing batches`
-- Phase 3 local OCR/ASR implementation is in progress locally and pending deployment verification.
+- `d90696d Implement optional OCR and ASR processing`
 
 ## Review Against The Original Plan
 
@@ -391,7 +391,7 @@ Exit criteria:
 
 ### Phase 3 - Local OCR/ASR
 
-Status: implementation complete locally; deployment verification pending.
+Status: complete.
 
 - Completed: add OCR jobs for downloaded screenshots/images through `media_ocr`.
 - Completed: add transcription jobs for downloaded voice/video/audio through `media_asr`.
@@ -409,23 +409,31 @@ Status: implementation complete locally; deployment verification pending.
   - `npm run media:process`;
   - Docker `node dist/app/media-process.js`.
 - Completed: add unit tests for OCR/ASR candidate detection.
-- Pending deployment: deploy Phase 3 to the Proxmox Docker host through Git.
-- Pending deployment: verify Docker app healthcheck after deployment.
-- Pending deployment: verify `docker compose config` and optional OCR/ASR service startup on the Proxmox Docker host.
-- Pending deployment: run PostgreSQL integration tests against a disposable `favorites_integration` database on the Proxmox PostgreSQL service.
-- Pending deployment: run a production media-processing smoke batch after at least one image/audio attachment is available and the optional services are started.
+- Completed: deploy Phase 3 to the Proxmox Docker host through Git.
+- Completed: verify Docker app healthcheck after deployment.
+- Completed: verify `docker compose config` and optional OCR/ASR service startup on the Proxmox Docker host.
+- Completed: build optional OCR and ASR Docker images on the Proxmox Docker host.
+- Completed: start optional OCR and ASR services and verify both Docker healthchecks.
+- Completed: run PostgreSQL integration tests against a disposable `favorites_integration` database on the Proxmox PostgreSQL service.
+- Completed: increase the Proxmox container resource limit to 10 GB so faster-whisper `large-v3` can initialize reliably.
+- Completed: run production media-processing smoke batches:
+  - 1 OCR job completed;
+  - 3 ASR jobs completed;
+  - 1 `ocr_text` artifact written;
+  - 3 `transcript` artifacts written;
+  - 0 remaining Phase 3 processing job failures or pending jobs.
 
 Exit criteria:
 
-- OCR/ASR processing can be run repeatedly without duplicate jobs or source row mutation;
-- optional processor containers are not built or started during normal app-only deployment;
-- processor URLs can point to local Compose services or another machine;
-- outputs are rebuildable derived artifacts;
-- app deployment remains healthy without OCR/ASR containers running.
+- completed: OCR/ASR processing can be run repeatedly without duplicate jobs or source row mutation;
+- completed: optional processor containers are not built or started during normal app-only deployment;
+- completed: processor URLs can point to local Compose services or another machine;
+- completed: outputs are rebuildable derived artifacts;
+- completed: app deployment remains healthy without OCR/ASR containers running.
 
 ### Readiness For Phase 4
 
-Ready foundations after Phase 3 implementation:
+Ready foundations:
 
 - deterministic text artifacts exist for message text;
 - OCR text and transcripts have the same rebuildable `derived_artifacts` boundary;
@@ -435,10 +443,10 @@ Ready foundations after Phase 3 implementation:
 
 Before starting Phase 4:
 
-- deploy Phase 3 through Git to Proxmox;
-- confirm normal app health without optional OCR/ASR profiles;
-- run at least one OCR or ASR smoke job if suitable media exists;
-- record Phase 3 deployment status here.
+- completed: deploy Phase 3 through Git to Proxmox;
+- completed: confirm normal app health without optional OCR/ASR profiles;
+- completed: run OCR and ASR smoke jobs against production attachments;
+- completed: record Phase 3 deployment status here.
 
 ### Phase 4 - Embeddings And Semantic Search
 
