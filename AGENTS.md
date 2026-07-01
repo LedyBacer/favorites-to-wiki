@@ -54,8 +54,9 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - `processing_jobs` has lock ownership, lock timestamps, retry limits, and completion timestamps for future worker claim semantics.
 - Phase 2 deterministic preprocessing writes `normalized_text`, `extracted_metadata`, `link_preview`, `file_metadata`, and `file_preview` artifacts. Link previews must not fetch external URLs.
 - Preprocessing entry points are `/preprocess` and `npm run preprocess:run`; Docker production can run `docker compose run --rm --entrypoint node app dist/app/preprocess.js 100`.
-- Roadmap phases 1.1 through 1.6 are complete; current planned work is Phase 2 deterministic preprocessing and Phase 3 readiness.
+- Roadmap phases 1.1 through 2 are complete; current planned work is Phase 3 local OCR/ASR.
 - Phase 1.6 was deployed to the Proxmox Docker host, passed Docker healthcheck, passed PostgreSQL integration tests against a disposable database, and completed a PostgreSQL plus storage backup/restore smoke test.
+- Phase 2 was deployed to the Proxmox Docker host, passed Docker healthcheck, processed production archive data into 102 derived artifacts with no failed jobs, and a repeated preprocessing run was idempotent.
 
 ## Maintenance Rule
 

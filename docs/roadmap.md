@@ -21,6 +21,8 @@ Latest committed work on `main`:
 - `8728523 Fix Docker database URL`
 - `87a3dcb Document project roadmap`
 - `8b0d3d9 Complete operations prep for phase 2`
+- `cdd5d4d Implement deterministic preprocessing`
+- `13496f4 Allow larger preprocessing batches`
 
 ## Review Against The Original Plan
 
@@ -347,7 +349,7 @@ Before starting Phase 2:
 
 ### Phase 2 - Deterministic Preprocessing
 
-Status: implementation complete, pending deployment verification.
+Status: complete.
 
 - Completed: extract URLs, domains, hashtags, mentions, dates, and file metadata.
 - Completed: generate stable normalized text per message.
@@ -371,17 +373,26 @@ Status: implementation complete, pending deployment verification.
   - `npm run preprocess:run`;
   - Docker `node dist/app/preprocess.js`.
 - Completed: add unit tests for deterministic extraction and integration tests for enqueue/process/artifact idempotency.
+- Completed: deploy Phase 2 to the Proxmox Docker host through Git.
+- Completed: verify Docker app healthcheck after deployment.
+- Completed: run PostgreSQL integration tests against a disposable `favorites_integration` database on the Proxmox PostgreSQL service.
+- Completed: run production preprocessing batch:
+  - 26 message jobs completed;
+  - 12 attachment jobs completed;
+  - 102 derived artifacts written;
+  - 0 preprocessing job failures.
+- Completed: run a repeated production preprocessing batch and verify it produced 0 new jobs, 0 claimed jobs, and 0 new artifacts.
 
 Exit criteria:
 
-- deterministic processing can be run repeatedly without duplicate jobs or source row mutation;
-- source Telegram rows remain the immutable archive;
-- derived artifacts are rebuildable;
-- worker pattern is ready for Phase 3 OCR/ASR jobs.
+- completed: deterministic processing can be run repeatedly without duplicate jobs or source row mutation;
+- completed: source Telegram rows remain the immutable archive;
+- completed: derived artifacts are rebuildable;
+- completed: worker pattern is ready for Phase 3 OCR/ASR jobs.
 
 ### Phase 3 - Local OCR/ASR
 
-- Status: ready to start after Phase 2 deployment verification.
+- Status: ready to start.
 - Add OCR jobs for screenshots/images.
 - Add transcription jobs for voice/video audio.
 - Store outputs as derived artifacts, not as replacements for original messages.
