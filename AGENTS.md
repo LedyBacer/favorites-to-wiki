@@ -35,10 +35,10 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 
 ## Known Gaps
 
-- Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, local export file storage, idempotent repeated imports, and unavailable attachment reporting through `skipped_too_large`.
 - No webhook HTTP server.
 - No OCR, ASR, embeddings, Ollama, external AI, web UI, reminders, Redis, Kafka, or Kubernetes.
-- Integration tests with real PostgreSQL are not yet wired; current tests focus on deterministic policy.
+- Telegram Desktop export importer supports dry-run parsing, summary reporting, database message writes through `MessageService`, local export file storage, idempotent repeated imports, and unavailable attachment reporting through `skipped_too_large`.
+- PostgreSQL integration tests exist under `tests/integration`, but they require an explicit `TEST_DATABASE_URL` and are skipped by default when that variable is not set.
 - Production build uses `tsconfig.build.json` so only `src` is emitted.
 - The app applies bundled Drizzle migrations at startup via `drizzle-orm/node-postgres/migrator`; the production image does not depend on `drizzle-kit`.
 - Docker Compose overrides `DATABASE_URL` for the app container to `postgres://favorites:favorites@postgres:5432/favorites`; `.env.example` keeps `localhost` for direct host-local development.
@@ -51,6 +51,7 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Attachment retries track `download_attempts`, `last_download_attempt_at`, and `next_retry_at`; retry entry points are `/retry_attachments` and `npm run attachments:retry`.
 - In Docker Compose production, run attachment retry as `docker compose run --rm --entrypoint node app dist/app/retry-attachments.js 20`.
 - Roadmap phases 1.1, 1.2, 1.3, 1.4, and 1.5 are complete; current planned work is Phase 1.6 observability and operations.
+- Phase 2 deterministic preprocessing is not blocked by the schema, but it should wait until Phase 1.6 documents startup diagnostics, backup, restore, and deployment operations.
 
 ## Maintenance Rule
 

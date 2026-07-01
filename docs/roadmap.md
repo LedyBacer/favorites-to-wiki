@@ -68,6 +68,7 @@ Latest committed work on `main`:
 - **Status/health:** `/status` checks database statistics and storage availability through Telegram, and the Docker app healthcheck verifies PostgreSQL plus local storage. There is still no HTTP health endpoint for external monitoring.
 - **Testing:** deterministic unit tests and repository-level PostgreSQL integration tests exist. Bot handler tests are deferred to the Telegram UX phase.
 - **Deployment:** Docker build, migrations, app startup, healthchecks, and real Telegram smoke tests are validated on the Proxmox Docker host.
+- **Operations:** startup logging, deployment runbook, and backup/restore documentation are not complete enough to declare the first product slice done.
 
 ### Not Started By Design
 
@@ -88,7 +89,7 @@ These were explicitly excluded from the first phase and should remain out until 
 
 ### 1. Concurrent Duplicate Delivery
 
-`MessageService.saveTelegramMessage` now wraps source-message writes in a database transaction. The remaining risk is concurrent duplicate delivery around the same `(telegram_chat_id, telegram_message_id)` or identical edit hash.
+`MessageService.saveTelegramMessage` now wraps source-message writes in a database transaction. Concurrent duplicate delivery around the same `(telegram_chat_id, telegram_message_id)` or identical edit hash is handled and covered by integration tests; the remaining risk is regression if future persistence changes bypass the same transaction/conflict/lock pattern.
 
 Why it matters:
 
@@ -107,7 +108,7 @@ Why it matters:
 
 ### 3. Attachment Download Lifecycle
 
-The current implementation avoids unsafe paths and partial final files, but download failures are only recorded.
+The current implementation avoids unsafe paths and partial final files, records download failures, and supports manual retries through Telegram and CLI entry points. The remaining operational risk is making failed media visible and recoverable during routine server maintenance.
 
 Why it matters:
 
@@ -234,10 +235,12 @@ Exit criteria:
 
 Priority: medium.
 
+Status: complete for MVP.
+
 - Completed: improve `/search` ranking using PostgreSQL `ts_rank`.
 - Completed: generate clearer result snippets and include attachment summaries.
 - Completed: split long `/recent` and `/search` responses safely across multiple Telegram messages.
-- Improve message links:
+- Completed: improve message links:
   - keep `t.me/c/...` for supergroups/channels where valid;
   - avoid misleading links for private chats where Telegram cannot form a public URL.
 - Completed: add `limit` support for `/recent` and `/search`.
@@ -253,6 +256,8 @@ Exit criteria:
 ### Phase 1.5 - Telegram Desktop Export Import
 
 Priority: medium.
+
+Status: complete for MVP.
 
 - Completed: define the initial supported Telegram Desktop JSON export subset for dry-run analysis.
 - Completed: add dry-run parsing, unsupported-type reporting, and summary counts.
@@ -308,7 +313,24 @@ Exit criteria:
 
 ## Later AI-Focused Phases
 
-Only start these after the archive layer has real data and Phase 1 persistence gaps are closed.
+Only start these after the archive layer has real data and Phase 1 persistence gaps are closed. As of this review, Phases 1.1-1.5 are complete enough for daily archive use, and the schema already has extension tables for derived data. Phase 2 should still wait until Phase 1.6 is finished because deterministic workers will make operations, backup, and restore more important.
+
+### Readiness For Phase 2
+
+Ready foundations:
+
+- source messages, versions, attachments, curated metadata, and future derived entities are separated;
+- `processing_jobs` exists as a PostgreSQL-backed queue table;
+- `records`, `entities`, `relations`, and `bundles` exist as extension points;
+- attachment files have stable local paths and SHA-256 values after download/import;
+- no external AI provider is part of the runtime path.
+
+Before starting Phase 2:
+
+- finish Phase 1.6 startup summary and operational docs;
+- document and test PostgreSQL plus storage backup/restore;
+- define where deterministic derived artifacts will be stored instead of mixing them into `messages.metadata`;
+- add worker locking/claiming semantics for `processing_jobs` before any background loop writes derived data.
 
 ### Phase 2 - Deterministic Preprocessing
 
