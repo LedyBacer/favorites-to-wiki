@@ -21,10 +21,10 @@ export const classificationOutputSchema = z.object({
     .array(
       z.object({
         type: z.enum(classificationRecordTypes),
-        title: z.string().min(1).max(240),
-        body: z.string().max(4000).nullable().default(null),
-        confidence: z.number().min(0).max(1).default(0.5),
-        tags: z.array(z.string().min(1).max(64)).max(12).default([]),
+        title: z.string().min(1).max(240).catch("Без названия"),
+        body: z.string().max(4000).nullable().catch(null),
+        confidence: z.number().min(0).max(1).catch(0.5),
+        tags: z.array(z.string().min(1).max(64)).max(12).catch([]),
       }),
     )
     .max(3)
@@ -32,9 +32,9 @@ export const classificationOutputSchema = z.object({
   entities: z
     .array(
       z.object({
-        type: z.string().min(1).max(80),
+        type: z.string().min(1).max(80).catch("unknown"),
         name: z.string().min(1).max(240),
-        confidence: z.number().min(0).max(1).default(0.5),
+        confidence: z.number().min(0).max(1).catch(0.5),
       }),
     )
     .max(8)
@@ -44,8 +44,8 @@ export const classificationOutputSchema = z.object({
       z.object({
         fromRecordIndex: z.number().int().min(0).max(2),
         toEntityName: z.string().min(1).max(240),
-        type: z.string().min(1).max(80),
-        confidence: z.number().min(0).max(1).default(0.5),
+        type: z.string().min(1).max(80).catch("mentions"),
+        confidence: z.number().min(0).max(1).catch(0.5),
       }),
     )
     .max(16)
