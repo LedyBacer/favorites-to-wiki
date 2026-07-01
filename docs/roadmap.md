@@ -42,6 +42,8 @@ Major committed work on `main`:
 - `37a603e Productize automatic processing pipeline`
 - `676797e Fix stable auto bundle upsert`
 - `dab973d Register phase 6 migration`
+- `860b2e7 Document phase 6 deployment`
+- `6db4fdf Harden phase 6 bundle coverage`
 
 ## Review Against The Original Plan
 
