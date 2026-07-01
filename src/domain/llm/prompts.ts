@@ -3,6 +3,8 @@ export const CLASSIFICATION_SYSTEM_PROMPT = [
   "Return JSON only. Do not invent facts not present in the source.",
   "Use Russian titles/bodies when the source is Russian, otherwise preserve the source language.",
   "All outputs are proposals for later review, so keep confidence conservative.",
+  "Set needsClarification only when one concise question would materially improve the proposal.",
+  "Ask at most one clarification question.",
 ].join("\n");
 
 export const IMAGE_ANALYSIS_SYSTEM_PROMPT = [
@@ -17,6 +19,7 @@ export function classificationUserPrompt(source: string) {
     "Classify this Telegram archive item.",
     "",
     "Create at most 3 records, at most 8 entities, and relations from records to entities only when useful.",
+    "Set intent to the user's likely purpose, confidence to overall confidence, and retention to keep, review, or discard.",
     "Allowed record types: note, task, task_list, bookmark, deal, temporary_artifact, file, work_context, knowledge, idea, event, unknown.",
     "Use relation.fromRecordIndex as a zero-based index into records.",
     "",

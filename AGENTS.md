@@ -18,7 +18,8 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - `messages` is the mutable current state of a Telegram message keyed by `(telegram_chat_id, telegram_message_id)`.
 - `message_versions` is immutable received history. Version 1 is created on first receipt. Edited messages append only if the content hash changed.
 - `attachments` is keyed by `telegram_file_unique_id` to avoid duplicate downloads.
-- `bundles`, `records`, `entities`, `relations`, and `processing_jobs` exist as extension points for later classification, grouping, extraction, and AI pipelines.
+- `bundles`, `records`, `entities`, `relations`, and `processing_jobs` are active derived/worker tables for grouping, classification proposals, extraction, and AI pipelines.
+- `processing_jobs` uses `(type, subject_kind, subject_id)` as the durable job identity plus `input_hash` and `generation_key` to reopen changed inputs without duplicate jobs.
 - Metadata is a curated JSON subset, not the full raw Telegram update.
 
 ## Storage Notes
@@ -30,8 +31,9 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 ## Bot Behavior
 
 - Bot accepts text, links in text, photos, documents, voice messages, videos, captions, forwards, replies, and edited messages.
-- Commands: `/start`, `/help`, `/recent`, `/status`, `/search`, `/retry_attachments`, `/preprocess`, `/process_media`, `/embed`, `/semantic`, `/analyze_images`, `/classify`, and `/proposals`.
-- Save acknowledgements are short and can be disabled with `BOT_ACKNOWLEDGEMENTS=false`.
+- User-facing help shows only `/search` or `/find`, `/recent`, `/settings`, and `/help`.
+- Owner-only operational commands such as `/status`, `/retry_attachments`, `/preprocess`, `/process_media`, `/embed`, `/semantic`, `/analyze_images`, `/classify`, and `/proposals` remain available but hidden from normal `/help`.
+- Save acknowledgements are disabled by default with `BOT_ACKNOWLEDGEMENTS=false`.
 
 ## Known Gaps
 
@@ -67,6 +69,9 @@ Build a self-hosted Telegram-first personal inbox: a reliable replacement for Te
 - Phase 5.1 image analysis uses a multimodal Ollama-compatible model such as `qwen3.5:4b` to write rebuildable `derived_artifacts.image_description` rows for downloaded image attachments. Source Telegram rows remain unchanged. Run embedding reindexing after image analysis when semantic search should include visual content.
 - Phase 5/5.1 entry points are `/classify`, `/proposals`, `/analyze_images`, `npm run classify:run`, `npm run images:analyze`, Docker `node dist/app/classify.js`, and Docker `node dist/app/image-analysis.js`.
 - Phase 5/5.1 was deployed to the Proxmox Docker host through Git, passed Docker app healthcheck, passed PostgreSQL integration tests, wrote 8 production `image_description` artifacts, reindexed 28 embeddings with 8 changed vectors, and wrote 29 production `llm_classification` artifacts plus 37 proposed records with no remaining failed Phase 5 jobs.
+- Phase 6 productization is in progress: Docker Compose now includes a continuous `worker` service from the app image. The worker automatically runs deterministic preprocessing, configured OCR/ASR/image analysis, configured embeddings, and configured LLM classification.
+- Auto bundles are rebuildable derived groupings. They currently cover Telegram media groups, reply-linked messages, sequential forwards from the same source, text immediately followed by an attachment, and conservative owner time-window bursts. Source Telegram rows remain unchanged.
+- Classification can target bundles, using chronological message context, forward metadata, OCR/transcripts/image descriptions, and a small number of already indexed semantic neighbors when available.
 
 ## Maintenance Rule
 

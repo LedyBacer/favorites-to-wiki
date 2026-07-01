@@ -84,6 +84,39 @@ The schema includes active extension points for:
 
 Future AI providers should be replaceable. Local providers are the default assumption. LLM output should be structured JSON validated by the application, never direct database writes. Classification results are proposals in derived/structured tables rather than direct mutations of source Telegram rows.
 
+## Phase 6 Automatic Worker And Bundles
+
+Phase 6 productizes the existing processing layers through a continuously running `worker` service in Docker Compose. The worker uses the same app image as the Telegram bot and runs:
+
+```text
+message ingestion
+-> deterministic preprocessing
+-> configured OCR/ASR and image analysis
+-> configured embeddings
+-> configured LLM classification
+```
+
+The worker still uses `processing_jobs` as the durable queue. Jobs keep the unique `(type, subject_kind, subject_id)` identity, and Phase 6 adds:
+
+- `input_hash` for the current source/provider input;
+- `generation_key` for the processor/model/prompt generation.
+
+When a source row, derived media artifact, model, or prompt generation changes, the existing job is reopened instead of creating a duplicate. This lets OCR/transcript/image-description changes automatically refresh embeddings and classification without a manual `/embed reindex` or `/classify reclassify`.
+
+Provider-backed stages are skipped when their service URL is not configured. Skipping does not fail the pipeline.
+
+Bundles are rebuildable derived groupings over source messages. The auto-bundle service deletes and recreates only bundles where `metadata.createdBy = "auto_bundle_service"` and never mutates source message rows. Conservative deterministic grouping rules are applied in this order:
+
+- Telegram media groups with the same chat and `mediaGroupId`;
+- reply-linked messages when the replied-to source message is already known;
+- sequential forwarded messages from the same forward source within 10 minutes;
+- owner text followed by an attachment within 3 minutes;
+- owner message bursts within 5 minutes, capped at 10 messages.
+
+The first implementation only creates bundles with at least two messages and avoids assigning one message to multiple auto-bundles.
+
+Classification can target either a standalone message or an auto-bundle. Bundle context includes bundle messages in chronological order, available forward metadata, OCR/transcript/image descriptions, and a small number of already indexed semantic neighbors when embeddings exist. The model still receives bounded context, not the whole database.
+
 ## Phase 5 Local LLM Classification
 
 Phase 5 uses an Ollama-compatible `/api/chat` provider boundary. The model receives archive context built by the app from message text, deterministic artifacts, OCR, transcripts, attachment metadata, and image descriptions. The model returns structured JSON, constrained by a JSON Schema request and validated again with Zod inside the app.

@@ -17,12 +17,13 @@ Do not copy project files to the server manually for normal updates. Deployment 
 cd /opt/favorites-to-wiki
 git pull
 docker compose build app
-docker compose up -d app
+docker compose up -d app worker
 docker compose ps
 docker compose logs --tail=100 app
+docker compose logs --tail=100 worker
 ```
 
-The app applies bundled Drizzle migrations at startup. A healthy deployment must show the app service as `healthy`.
+The app and worker both apply bundled Drizzle migrations at startup. A healthy deployment must show the app and worker services as `healthy`.
 
 ## Diagnose Runtime State
 
@@ -30,9 +31,11 @@ The app applies bundled Drizzle migrations at startup. A healthy deployment must
 cd /opt/favorites-to-wiki
 docker compose ps
 docker compose logs --tail=200 app
+docker compose logs --tail=200 worker
 docker compose logs --tail=100 postgres
 docker compose exec -T postgres pg_isready -U favorites -d favorites
 docker compose exec -T app node dist/app/healthcheck.js
+docker compose exec -T worker node dist/app/healthcheck.js
 ```
 
 Startup logs include a structured `Startup summary` entry with:
@@ -46,10 +49,38 @@ Startup logs include a structured `Startup summary` entry with:
 - `embeddingModel`;
 - `embeddingDimensions`;
 - `embeddingMaxInputChars`;
-- `botAcknowledgements`;
-- `allowedUserCount`;
-- `migrationSuccess`;
-- bot identity from Telegram `getMe`.
+  - `botAcknowledgements`;
+  - `allowedUserCount`;
+  - `migrationSuccess`;
+  - bot identity from Telegram `getMe`.
+
+Worker startup logs include a structured `Pipeline worker startup summary` entry with:
+
+- `workerId`;
+- batch size and idle interval;
+- OCR/ASR, embedding, and LLM provider configuration flags.
+
+Each worker loop logs `Pipeline worker loop completed` with bundle, preprocessing, media, embedding, image-analysis, and classification summaries. Provider-backed stages report a skipped reason when not configured.
+
+## Automatic Pipeline Worker
+
+The normal deployment runs:
+
+```bash
+cd /opt/favorites-to-wiki
+docker compose up -d app worker postgres
+```
+
+The worker automatically enqueues and processes changed inputs. It reopens an existing `processing_jobs` row when `input_hash` or `generation_key` changes, so downstream embeddings and classification refresh after OCR, transcripts, or image descriptions are written.
+
+Tune worker cadence with:
+
+```bash
+WORKER_BATCH_SIZE=25
+WORKER_IDLE_MS=15000
+```
+
+Manual processing commands remain useful for diagnostics, but routine use should not require Telegram processing commands.
 
 ## Attachment Retry
 

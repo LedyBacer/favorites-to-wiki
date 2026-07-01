@@ -8,8 +8,95 @@ export interface ClaimProcessingJobsOptions {
   limit?: number;
 }
 
+export interface EnqueueOrRefreshJobInput {
+  type: string;
+  subjectKind: string;
+  subjectId: string;
+  generationKey: string;
+  inputHash: string;
+  payload?: Record<string, unknown>;
+  maxAttempts?: number;
+}
+
 export class ProcessingJobService {
   constructor(private readonly db: Database) {}
+
+  async enqueueOrRefresh(input: EnqueueOrRefreshJobInput): Promise<boolean> {
+    const result = await this.db.execute<{ id: string }>(sql`
+      insert into processing_jobs (
+        type,
+        subject_kind,
+        subject_id,
+        generation_key,
+        input_hash,
+        payload,
+        max_attempts
+      )
+      values (
+        ${input.type},
+        ${input.subjectKind},
+        ${input.subjectId},
+        ${input.generationKey},
+        ${input.inputHash},
+        ${JSON.stringify(input.payload ?? {})}::jsonb,
+        ${input.maxAttempts ?? 5}
+      )
+      on conflict (type, subject_kind, subject_id)
+      do update set
+        generation_key = excluded.generation_key,
+        input_hash = excluded.input_hash,
+        payload = excluded.payload,
+        max_attempts = excluded.max_attempts,
+        status = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then 'pending'::processing_job_status
+          else processing_jobs.status
+        end,
+        attempts = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then 0
+          else processing_jobs.attempts
+        end,
+        locked_by = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then null
+          else processing_jobs.locked_by
+        end,
+        locked_at = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then null
+          else processing_jobs.locked_at
+        end,
+        last_error = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then null
+          else processing_jobs.last_error
+        end,
+        run_after = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then now()
+          else processing_jobs.run_after
+        end,
+        completed_at = case
+          when processing_jobs.generation_key is distinct from excluded.generation_key
+            or processing_jobs.input_hash is distinct from excluded.input_hash
+          then null
+          else processing_jobs.completed_at
+        end,
+        updated_at = now()
+      where processing_jobs.generation_key is distinct from excluded.generation_key
+        or processing_jobs.input_hash is distinct from excluded.input_hash
+        or processing_jobs.payload is distinct from excluded.payload
+      returning id
+    `);
+    return result.rows.length > 0;
+  }
 
   async claimPendingJobs(options: ClaimProcessingJobsOptions): Promise<ProcessingJob[]> {
     const limit = options.limit ?? 10;
@@ -57,6 +144,8 @@ export class ProcessingJobService {
         processing_jobs.max_attempts as "maxAttempts",
         processing_jobs.locked_by as "lockedBy",
         processing_jobs.locked_at as "lockedAt",
+        processing_jobs.input_hash as "inputHash",
+        processing_jobs.generation_key as "generationKey",
         processing_jobs.payload,
         processing_jobs.last_error as "lastError",
         processing_jobs.run_after as "runAfter",

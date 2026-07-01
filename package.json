@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tsx watch src/app/main.ts",
     "start": "node dist/app/main.js",
+    "worker": "tsx src/app/worker.ts",
     "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",

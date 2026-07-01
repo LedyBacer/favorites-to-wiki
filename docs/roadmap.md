@@ -154,6 +154,62 @@ Why it matters:
 
 ## Next Actions
 
+### Phase 6 - Productized Automatic Processing
+
+Priority: highest.
+
+Status: planned.
+
+Scope:
+
+- Make Telegram daily use quiet by default:
+  - default `BOT_ACKNOWLEDGEMENTS` to `false`;
+  - keep `/help` focused on user commands: `/search` or `/find`, `/recent`, `/settings`, and `/help`;
+  - keep processing and maintenance commands owner-only but hidden from normal help.
+- Add a continuously running Docker Compose `worker` service from the same app image.
+- Use `processing_jobs` as the durable queue for automatic processing:
+  - deterministic preprocessing;
+  - OCR/ASR when providers are configured;
+  - image analysis when the LLM vision provider is configured;
+  - embedding generation when the embedding provider is configured;
+  - LLM classification when the LLM provider is configured.
+- Replace manual downstream reindex/reclassify expectations with automatic changed-input detection:
+  - completed jobs can be reopened when the source hash or generation key changes;
+  - provider-missing stages are skipped without failing the pipeline;
+  - source Telegram tables remain unchanged.
+- Add conservative, deterministic bundle grouping:
+  - Telegram media groups;
+  - reply-linked messages;
+  - sequential forwards from the same source;
+  - owner messages in a short time window;
+  - text followed immediately by an attachment.
+- Treat bundles as rebuildable derived grouping over source messages, not source mutations.
+- Classify bundle context when available:
+  - chronological bundle messages;
+  - forward metadata;
+  - OCR/transcript/image descriptions;
+  - a small number of semantic neighbors when embeddings are configured.
+- Extend validated classification output with:
+  - `intent`;
+  - `confidence`;
+  - `needsClarification`;
+  - `clarificationQuestion`;
+  - `retention`.
+
+Exit criteria:
+
+- a new Telegram message starts processing without a Telegram processing command;
+- normal `/help` does not show technical processing commands;
+- the bot is quiet by default after saving;
+- OCR/transcript/image-description changes automatically refresh embeddings and classification;
+- a forwarded series can be grouped and classified as one bundle;
+- classification source context can be a bundle;
+- no source `messages`, `message_versions`, or `attachments` rows are mutated by derived workers;
+- unit and integration tests pass;
+- Docker Compose starts `app`, `worker`, and `postgres`;
+- project docs are updated;
+- the phase is committed, pushed, pulled on Proxmox, rebuilt, and verified by Docker healthchecks.
+
 ### Phase 1.1 - Make The MVP Operational
 
 Priority: highest.

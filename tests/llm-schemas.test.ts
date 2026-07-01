@@ -25,6 +25,11 @@ describe("LLM output schemas", () => {
 
     expect(parsed.records[0]?.type).toBe("deal");
     expect(parsed.entities[0]?.name).toBe("monitor");
+    expect(parsed.intent).toBe("unknown");
+    expect(parsed.confidence).toBe(0.5);
+    expect(parsed.needsClarification).toBe(false);
+    expect(parsed.clarificationQuestion).toBeNull();
+    expect(parsed.retention).toBe("keep");
   });
 
   it("normalizes unsupported record types to unknown", () => {

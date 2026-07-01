@@ -3,6 +3,7 @@ import { Bot, type Context } from "grammy";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config/env.js";
 import type { Database } from "../db/client.js";
+import { BundleService } from "../domain/bundles/bundle-service.js";
 import {
   AttachmentService,
   type AttachmentDownloadSummary,
@@ -123,6 +124,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
   bot.api.config.use(hydrateFiles(config.TELEGRAM_BOT_TOKEN));
 
   const messageService = new MessageService(db);
+  const bundleService = new BundleService(db);
   const searchService = new SearchService(db);
   const preprocessingService = new PreprocessingService(db);
   const mediaProcessingService = new MediaProcessingService(db, config);
@@ -163,17 +165,26 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     await ctx.reply(
       [
         "/search запрос - поиск по сохраненному",
+        "/find запрос - то же самое, что /search",
         "/search 10 запрос - поиск с лимитом",
         "/recent - последние сохраненные",
         "/recent 10 - последние сохраненные с лимитом",
-        "/status - состояние хранилища и базы",
-        "/preprocess - запустить пакет детерминированной предобработки",
-        "/process_media - запустить пакет OCR/ASR обработки",
-        "/analyze_images - запустить пакет LLM-анализа изображений",
-        "/embed - запустить пакет индексации embeddings",
-        "/semantic запрос - семантический поиск по embeddings",
-        "/classify - запустить пакет LLM-классификации",
-        "/proposals - последние предложенные records",
+        "/settings - текущие настройки бота",
+        "/help - эта справка",
+      ].join("\n"),
+    );
+  });
+
+  bot.command("settings", async (ctx) => {
+    await ctx.reply(
+      [
+        "Настройки",
+        `Подтверждения сохранения: ${config.BOT_ACKNOWLEDGEMENTS ? "включены" : "выключены"}`,
+        `Лимит результатов поиска: ${config.SEARCH_RESULT_LIMIT}`,
+        `Embeddings: ${config.EMBEDDING_SERVICE_URL ? "настроены" : "не настроены"}`,
+        `LLM: ${config.LLM_SERVICE_URL ? "настроен" : "не настроен"}`,
+        `OCR: ${config.OCR_SERVICE_URL ? "настроен" : "не настроен"}`,
+        `ASR: ${config.ASR_SERVICE_URL ? "настроен" : "не настроен"}`,
       ].join("\n"),
     );
   });
@@ -193,6 +204,7 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     try {
       await storage.ensureReady();
       const stats = await messageService.stats();
+      const bundleStats = await bundleService.stats();
       const preprocessingStats = await preprocessingService.stats();
       const mediaProcessingStats = await mediaProcessingService.stats();
       const embeddingStats = await embeddingService.stats();
@@ -209,6 +221,8 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
           `Ожидает: ${stats.pending_count}`,
           `Ошибок: ${stats.failed_count}`,
           `Слишком больших: ${stats.skipped_too_large_count}`,
+          `Авто-bundles: ${bundleStats.bundle_count}`,
+          `Сообщений в bundles: ${bundleStats.grouped_message_count}`,
           `Предобработка ожидает: ${preprocessingStats.pending_count}`,
           `Предобработка выполняется: ${preprocessingStats.running_count}`,
           `Предобработка завершена: ${preprocessingStats.completed_count}`,
@@ -324,14 +338,14 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     }
   });
 
-  bot.command("search", async (ctx) => {
+  async function searchCommand(ctx: BotContext, command: "/search" | "/find") {
     const { limit, rest: query } = parseLimitPrefix(
-      ctx.match,
+      typeof ctx.match === "string" ? ctx.match : "",
       config.SEARCH_RESULT_LIMIT,
       config.SEARCH_RESULT_LIMIT,
     );
     if (!query) {
-      await ctx.reply("Использование: /search запрос");
+      await ctx.reply(`Использование: ${command} запрос`);
       return;
     }
     const results = await searchService.search(query, limit);
@@ -343,6 +357,14 @@ export function createBot(config: AppConfig, db: Database, logger: Logger) {
     for (const chunk of splitTelegramMessage(text)) {
       await ctx.reply(chunk);
     }
+  }
+
+  bot.command("search", async (ctx) => {
+    await searchCommand(ctx, "/search");
+  });
+
+  bot.command("find", async (ctx) => {
+    await searchCommand(ctx, "/find");
   });
 
   bot.command("semantic", async (ctx) => {

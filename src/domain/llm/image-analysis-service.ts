@@ -5,6 +5,7 @@ import type { AppConfig } from "../../config/env.js";
 import type { Database } from "../../db/client.js";
 import type { Attachment, ProcessingJob } from "../../db/schema.js";
 import { isOcrCandidate } from "../media-processing/media-kind.js";
+import { hashProcessingInput } from "../processing/hash.js";
 import { ProcessingJobService } from "../processing/processing-job-service.js";
 import { DerivedArtifactService } from "../preprocessing/derived-artifact-service.js";
 import { OllamaChatClient } from "./ollama-chat-client.js";
@@ -62,20 +63,19 @@ export class ImageAnalysisService {
       await this.reopenExistingJobs(limit);
     }
 
-    const result = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload, max_attempts)
+    const result = await this.db.execute<{
+      id: string;
+      local_path: string | null;
+      sha256: string | null;
+      mime_type: string | null;
+      size_bytes: number | null;
+    }>(sql`
       select
-        ${IMAGE_ANALYSIS_JOB},
-        'attachment',
         attachments.id,
-        jsonb_build_object(
-          'phase', '5.1',
-          'processorVersion', 1,
-          'provider', ${IMAGE_ANALYSIS_PROVIDER}::text,
-          'model', ${this.config.LLM_VISION_MODEL}::text,
-          'artifactType', 'image_description'
-        ),
-        3
+        attachments.local_path,
+        attachments.sha256,
+        attachments.mime_type,
+        attachments.size_bytes
       from attachments
       where attachments.download_status = 'downloaded'
         and attachments.local_path is not null
@@ -84,19 +84,29 @@ export class ImageAnalysisService {
           or lower(coalesce(attachments.original_file_name, attachments.local_path, '')) ~ '\\.(bmp|gif|jpe?g|png|tiff?|webp)$'
         )
         and coalesce(attachments.size_bytes, 0) <= ${this.config.LLM_IMAGE_MAX_ATTACHMENT_BYTES}
-        and not exists (
-          select 1
-          from processing_jobs existing
-          where existing.type = ${IMAGE_ANALYSIS_JOB}
-            and existing.subject_kind = 'attachment'
-            and existing.subject_id = attachments.id
-        )
       order by attachments.created_at asc
       limit ${limit}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
     `);
-    return result.rows.length;
+    let created = 0;
+    for (const row of result.rows) {
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: IMAGE_ANALYSIS_JOB,
+        subjectKind: "attachment",
+        subjectId: row.id,
+        generationKey: `phase5.1:${IMAGE_ANALYSIS_PROVIDER}:${this.config.LLM_VISION_MODEL}:v1`,
+        inputHash: hashProcessingInput(row),
+        payload: {
+          phase: "5.1",
+          processorVersion: 1,
+          provider: IMAGE_ANALYSIS_PROVIDER,
+          model: this.config.LLM_VISION_MODEL,
+          artifactType: "image_description",
+        },
+        maxAttempts: 3,
+      });
+      if (changed) created += 1;
+    }
+    return created;
   }
 
   async processBatch(workerId: string, limit = 20): Promise<ImageAnalysisSummary> {

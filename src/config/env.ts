@@ -22,7 +22,7 @@ const envSchema = z.object({
   MAX_ATTACHMENT_DOWNLOAD_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
   BOT_ACKNOWLEDGEMENTS: z
     .enum(["true", "false", "1", "0"])
-    .default("true")
+    .default("false")
     .transform((value) => value === "true" || value === "1"),
   SEARCH_RESULT_LIMIT: z.coerce.number().int().min(1).max(20).default(5),
   OCR_SERVICE_URL: emptyStringToUndefined(z.string().url().optional()),
@@ -78,6 +78,8 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(25 * 1024 * 1024),
+  WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(25),
+  WORKER_IDLE_MS: z.coerce.number().int().min(1000).max(10 * 60 * 1000).default(15000),
   LOG_LEVEL: z.string().default("info"),
 });
 

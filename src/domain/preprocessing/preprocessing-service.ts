@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "../../db/client.js";
 import type { Attachment, ProcessingJob } from "../../db/schema.js";
+import { hashProcessingInput } from "../processing/hash.js";
 import { ProcessingJobService } from "../processing/processing-job-service.js";
 import { DerivedArtifactService } from "./derived-artifact-service.js";
 import {
@@ -41,52 +42,75 @@ export class PreprocessingService {
       throw new Error("Preprocessing enqueue limit must be between 1 and 5000");
     }
 
-    const messageJobs = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload)
+    const messageRows = await this.db.execute<{
+      id: string;
+      current_text: string | null;
+      metadata: unknown;
+      updated_at: Date | string;
+    }>(sql`
       select
-        ${MESSAGE_PREPROCESSING_JOB},
-        'message',
         messages.id,
-        jsonb_build_object('phase', 2, 'processorVersion', 1)
+        messages.current_text,
+        messages.metadata,
+        messages.updated_at
       from messages
-      where not exists (
-        select 1
-        from processing_jobs existing
-        where existing.type = ${MESSAGE_PREPROCESSING_JOB}
-          and existing.subject_kind = 'message'
-          and existing.subject_id = messages.id
-      )
       order by messages.telegram_date asc, messages.created_at asc
       limit ${limit}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
     `);
+    let created = 0;
+    for (const row of messageRows.rows) {
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: MESSAGE_PREPROCESSING_JOB,
+        subjectKind: "message",
+        subjectId: row.id,
+        generationKey: "phase2:v1",
+        inputHash: hashProcessingInput({
+          text: row.current_text,
+          metadata: row.metadata,
+          updatedAt: row.updated_at,
+        }),
+        payload: { phase: 2, processorVersion: 1 },
+      });
+      if (changed) created += 1;
+    }
 
-    const remaining = Math.max(0, limit - messageJobs.rows.length);
-    if (remaining === 0) return messageJobs.rows.length;
+    const remaining = Math.max(0, limit - created);
+    if (remaining === 0) return created;
 
-    const attachmentJobs = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload)
+    const attachmentRows = await this.db.execute<{
+      id: string;
+      original_file_name: string | null;
+      mime_type: string | null;
+      size_bytes: number | null;
+      local_path: string | null;
+      sha256: string | null;
+      download_status: string;
+    }>(sql`
       select
-        ${ATTACHMENT_PREPROCESSING_JOB},
-        'attachment',
         attachments.id,
-        jsonb_build_object('phase', 2, 'processorVersion', 1)
+        attachments.original_file_name,
+        attachments.mime_type,
+        attachments.size_bytes,
+        attachments.local_path,
+        attachments.sha256,
+        attachments.download_status
       from attachments
-      where not exists (
-        select 1
-        from processing_jobs existing
-        where existing.type = ${ATTACHMENT_PREPROCESSING_JOB}
-          and existing.subject_kind = 'attachment'
-          and existing.subject_id = attachments.id
-      )
       order by attachments.created_at asc
       limit ${remaining}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
     `);
+    for (const row of attachmentRows.rows) {
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: ATTACHMENT_PREPROCESSING_JOB,
+        subjectKind: "attachment",
+        subjectId: row.id,
+        generationKey: "phase2:v1",
+        inputHash: hashProcessingInput(row),
+        payload: { phase: 2, processorVersion: 1 },
+      });
+      if (changed) created += 1;
+    }
 
-    return messageJobs.rows.length + attachmentJobs.rows.length;
+    return created;
   }
 
   async processBatch(workerId: string, limit = 50): Promise<PreprocessingSummary> {

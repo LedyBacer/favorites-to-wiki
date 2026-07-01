@@ -68,18 +68,7 @@ export class EmbeddingService {
     }
 
     const result = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload, max_attempts)
-      select
-        ${MESSAGE_EMBEDDING_JOB},
-        'message',
-        messages.id,
-        jsonb_build_object(
-          'phase', 4,
-          'processorVersion', 1,
-          'provider', ${EMBEDDING_PROVIDER}::text,
-          'model', ${this.config.EMBEDDING_MODEL}::text
-        ),
-        3
+      select messages.id
       from messages
       where (
           coalesce(messages.current_text, '') <> ''
@@ -100,19 +89,34 @@ export class EmbeddingService {
               and a.original_file_name is not null
           )
         )
-        and not exists (
-          select 1
-          from processing_jobs existing
-          where existing.type = ${MESSAGE_EMBEDDING_JOB}
-            and existing.subject_kind = 'message'
-            and existing.subject_id = messages.id
-        )
       order by messages.telegram_date asc, messages.created_at asc
       limit ${limit}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
     `);
-    return result.rows.length;
+    let created = 0;
+    for (const row of result.rows) {
+      const source = await buildMessageEmbeddingSourceText(
+        this.db,
+        row.id,
+        this.config.EMBEDDING_MAX_INPUT_CHARS,
+      );
+      if (!source?.text) continue;
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: MESSAGE_EMBEDDING_JOB,
+        subjectKind: "message",
+        subjectId: row.id,
+        generationKey: `phase4:${EMBEDDING_PROVIDER}:${this.config.EMBEDDING_MODEL}:v1`,
+        inputHash: source.contentHash,
+        payload: {
+          phase: 4,
+          processorVersion: 1,
+          provider: EMBEDDING_PROVIDER,
+          model: this.config.EMBEDDING_MODEL,
+        },
+        maxAttempts: 3,
+      });
+      if (changed) created += 1;
+    }
+    return created;
   }
 
   async processBatch(workerId: string, limit = 20): Promise<EmbeddingSummary> {

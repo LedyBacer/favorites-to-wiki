@@ -19,6 +19,11 @@ export const classificationOutputSchema = z.preprocess(
   normalizeClassificationRoot,
   z.object({
     summary: z.string().max(1000).catch(""),
+    intent: z.string().min(1).max(120).catch("unknown"),
+    confidence: z.number().min(0).max(1).catch(0.5),
+    needsClarification: z.boolean().catch(false),
+    clarificationQuestion: z.string().max(500).nullable().catch(null),
+    retention: z.enum(["keep", "review", "discard"]).catch("keep"),
     records: z
       .array(
         z.object({
@@ -62,6 +67,11 @@ export const classificationJsonSchema = {
   additionalProperties: false,
   properties: {
     summary: { type: "string" },
+    intent: { type: "string" },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    needsClarification: { type: "boolean" },
+    clarificationQuestion: { type: ["string", "null"] },
+    retention: { type: "string", enum: ["keep", "review", "discard"] },
     records: {
       type: "array",
       maxItems: 3,
@@ -108,7 +118,17 @@ export const classificationJsonSchema = {
       },
     },
   },
-  required: ["summary", "records", "entities", "relations"],
+  required: [
+    "summary",
+    "intent",
+    "confidence",
+    "needsClarification",
+    "clarificationQuestion",
+    "retention",
+    "records",
+    "entities",
+    "relations",
+  ],
 };
 
 export const imageAnalysisOutputSchema = z.object({

@@ -10,12 +10,38 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://favorites:favorites@postgres:5432/favorites
-      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-http://ocr:8000}
+      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-}
       OCR_SERVICE_API_KEY: ${OCR_SERVICE_API_KEY:-}
-      ASR_SERVICE_URL: ${ASR_SERVICE_URL:-http://asr:8000}
+      ASR_SERVICE_URL: ${ASR_SERVICE_URL:-}
       ASR_SERVICE_API_KEY: ${ASR_SERVICE_API_KEY:-}
     volumes:
       - telegram_files:/app/data/storage
+    healthcheck:
+      test: ["CMD", "node", "dist/app/healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://favorites:favorites@postgres:5432/favorites
+      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-}
+      OCR_SERVICE_API_KEY: ${OCR_SERVICE_API_KEY:-}
+      ASR_SERVICE_URL: ${ASR_SERVICE_URL:-}
+      ASR_SERVICE_API_KEY: ${ASR_SERVICE_API_KEY:-}
+    volumes:
+      - telegram_files:/app/data/storage
+    command: ["node", "dist/app/worker.js"]
     healthcheck:
       test: ["CMD", "node", "dist/app/healthcheck.js"]
       interval: 30s

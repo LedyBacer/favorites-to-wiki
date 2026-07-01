@@ -5,7 +5,7 @@ import type { Database } from "../../db/client.js";
 import type { ProcessingJob } from "../../db/schema.js";
 import { ProcessingJobService } from "../processing/processing-job-service.js";
 import { DerivedArtifactService } from "../preprocessing/derived-artifact-service.js";
-import { buildClassificationSource } from "./classification-source.js";
+import { buildClassificationSource, type ClassificationSource } from "./classification-source.js";
 import { OllamaChatClient } from "./ollama-chat-client.js";
 import { CLASSIFICATION_SYSTEM_PROMPT, classificationUserPrompt } from "./prompts.js";
 import {
@@ -63,21 +63,55 @@ export class LlmClassificationService {
       await this.reopenExistingJobs(limit);
     }
 
+    const bundleRows = await this.db.execute<{ id: string }>(sql`
+      select b.id
+      from bundles b
+      where b.metadata->>'createdBy' = 'auto_bundle_service'
+      order by b.created_at asc
+      limit ${limit}
+    `);
+
+    let created = 0;
+    for (const row of bundleRows.rows) {
+      const source = await buildClassificationSource(
+        this.db,
+        row.id,
+        this.config.LLM_MAX_INPUT_CHARS,
+        "bundle",
+      );
+      if (!source?.text) continue;
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: LLM_CLASSIFICATION_JOB,
+        subjectKind: "bundle",
+        subjectId: row.id,
+        generationKey: `phase6:${LLM_PROVIDER}:${this.config.LLM_MODEL}:classification:v2`,
+        inputHash: source.contentHash,
+        payload: {
+          phase: 6,
+          processorVersion: 2,
+          provider: LLM_PROVIDER,
+          model: this.config.LLM_MODEL,
+          sourceKind: "bundle",
+        },
+        maxAttempts: 3,
+      });
+      if (changed) created += 1;
+    }
+
+    const remaining = Math.max(0, limit - created);
+    if (remaining === 0) return created;
+
     const result = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload, max_attempts)
-      select
-        ${LLM_CLASSIFICATION_JOB},
-        'message',
-        messages.id,
-        jsonb_build_object(
-          'phase', 5,
-          'processorVersion', 1,
-          'provider', ${LLM_PROVIDER}::text,
-          'model', ${this.config.LLM_MODEL}::text
-        ),
-        3
+      select messages.id
       from messages
-      where (
+      where not exists (
+          select 1
+          from bundle_messages bm
+          join bundles b on b.id = bm.bundle_id
+          where bm.message_id = messages.id
+            and b.metadata->>'createdBy' = 'auto_bundle_service'
+        )
+        and (
           coalesce(messages.current_text, '') <> ''
           or exists (
             select 1
@@ -95,19 +129,35 @@ export class LlmClassificationService {
             where a.message_id = messages.id
           )
         )
-        and not exists (
-          select 1
-          from processing_jobs existing
-          where existing.type = ${LLM_CLASSIFICATION_JOB}
-            and existing.subject_kind = 'message'
-            and existing.subject_id = messages.id
-        )
       order by messages.telegram_date asc, messages.created_at asc
-      limit ${limit}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
+      limit ${remaining}
     `);
-    return result.rows.length;
+    for (const row of result.rows) {
+      const source = await buildClassificationSource(
+        this.db,
+        row.id,
+        this.config.LLM_MAX_INPUT_CHARS,
+        "message",
+      );
+      if (!source?.text) continue;
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: LLM_CLASSIFICATION_JOB,
+        subjectKind: "message",
+        subjectId: row.id,
+        generationKey: `phase6:${LLM_PROVIDER}:${this.config.LLM_MODEL}:classification:v2`,
+        inputHash: source.contentHash,
+        payload: {
+          phase: 6,
+          processorVersion: 2,
+          provider: LLM_PROVIDER,
+          model: this.config.LLM_MODEL,
+          sourceKind: "message",
+        },
+        maxAttempts: 3,
+      });
+      if (changed) created += 1;
+    }
+    return created;
   }
 
   async processBatch(workerId: string, limit = 20): Promise<LlmClassificationSummary> {
@@ -190,7 +240,10 @@ export class LlmClassificationService {
   }
 
   private async processJob(job: ProcessingJob) {
-    if (job.type !== LLM_CLASSIFICATION_JOB || job.subjectKind !== "message") {
+    if (
+      job.type !== LLM_CLASSIFICATION_JOB ||
+      (job.subjectKind !== "message" && job.subjectKind !== "bundle")
+    ) {
       throw new Error(`Unsupported classification job ${job.type}/${job.subjectKind}`);
     }
 
@@ -198,8 +251,9 @@ export class LlmClassificationService {
       this.db,
       job.subjectId,
       this.config.LLM_MAX_INPUT_CHARS,
+      job.subjectKind,
     );
-    if (!source) throw new Error(`Message not found for classification: ${job.subjectId}`);
+    if (!source) throw new Error(`Source not found for classification: ${job.subjectId}`);
     if (!source.text) return { records: 0, entities: 0, relations: 0, artifacts: 0 };
 
     const result = await this.client.chatJson({
@@ -213,7 +267,7 @@ export class LlmClassificationService {
     });
 
     await this.artifacts.upsert({
-      sourceKind: "message",
+      sourceKind: source.sourceKind,
       sourceId: job.subjectId,
       artifactType: "llm_classification",
       artifactKey: `${LLM_PROVIDER}:${this.config.LLM_MODEL}`,
@@ -225,38 +279,41 @@ export class LlmClassificationService {
         output: result.value,
       },
       metadata: {
-        phase: 5,
+        phase: 6,
         processor: "llm_classification_service",
-        processorVersion: 1,
+        processorVersion: 2,
         inputParts: source.parts,
         rawAvailable: result.raw !== undefined,
       },
     });
 
-    const written = await this.persistProposal(job.subjectId, source.contentHash, result.value);
+    const written = await this.persistProposal(source, result.value);
     return { ...written, artifacts: 1 };
   }
 
-  private async persistProposal(
-    messageId: string,
-    contentHash: string,
-    output: ClassificationOutput,
-  ) {
+  private async persistProposal(source: ClassificationSource, output: ClassificationOutput) {
     const recordIds: string[] = [];
     const modelKey = `${LLM_PROVIDER}:${this.config.LLM_MODEL}`;
     const baseMetadata = {
       status: "proposed",
-      phase: 5,
+      phase: 6,
       provider: LLM_PROVIDER,
       model: this.config.LLM_MODEL,
-      sourceContentHash: contentHash,
+      sourceKind: source.sourceKind,
+      sourceId: source.sourceId,
+      sourceContentHash: source.contentHash,
       summary: output.summary,
+      intent: output.intent,
+      confidence: output.confidence,
+      needsClarification: output.needsClarification,
+      clarificationQuestion: output.needsClarification ? output.clarificationQuestion : null,
+      retention: output.retention,
     };
 
     for (const [index, record] of output.records.entries()) {
       const proposalKey = proposalKeyFor(
         "record",
-        messageId,
+        source.sourceId,
         modelKey,
         `${index}:${record.type}:${record.title}`,
       );
@@ -267,7 +324,7 @@ export class LlmClassificationService {
           ${record.type}::record_type,
           ${record.title},
           ${record.body},
-          ${messageId},
+          ${source.messageId},
           ${JSON.stringify({ ...baseMetadata, confidence: record.confidence, tags: record.tags })}::jsonb,
           now()
         )
@@ -290,7 +347,7 @@ export class LlmClassificationService {
       if (!normalizedName) continue;
       const proposalKey = proposalKeyFor(
         "entity",
-        messageId,
+        source.sourceId,
         modelKey,
         `${entity.type}:${normalizedName}`,
       );
@@ -319,7 +376,7 @@ export class LlmClassificationService {
       if (!recordId || !entityId) continue;
       const proposalKey = proposalKeyFor(
         "relation",
-        messageId,
+        source.sourceId,
         modelKey,
         `${relation.fromRecordIndex}:${relation.type}:${relation.toEntityName}`,
       );

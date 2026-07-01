@@ -264,6 +264,8 @@ export const processingJobs = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(5),
     lockedBy: text("locked_by"),
     lockedAt: timestamp("locked_at", { withTimezone: true }),
+    inputHash: text("input_hash"),
+    generationKey: text("generation_key").notNull().default("default"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     lastError: text("last_error"),
     runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { AppConfig } from "../../config/env.js";
 import type { Database } from "../../db/client.js";
 import type { Attachment, ProcessingJob } from "../../db/schema.js";
+import { hashProcessingInput } from "../processing/hash.js";
 import { ProcessingJobService } from "../processing/processing-job-service.js";
 import { DerivedArtifactService } from "../preprocessing/derived-artifact-service.js";
 import { isAsrCandidate, isOcrCandidate } from "./media-kind.js";
@@ -140,14 +141,19 @@ export class MediaProcessingService {
 
   private async enqueueOcr(limit: number) {
     if (limit < 1) return 0;
-    const result = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload, max_attempts)
+    const result = await this.db.execute<{
+      id: string;
+      local_path: string | null;
+      sha256: string | null;
+      mime_type: string | null;
+      size_bytes: number | null;
+    }>(sql`
       select
-        ${OCR_PROCESSING_JOB},
-        'attachment',
         attachments.id,
-        jsonb_build_object('phase', 3, 'processorVersion', 1, 'artifactType', 'ocr_text'),
-        3
+        attachments.local_path,
+        attachments.sha256,
+        attachments.mime_type,
+        attachments.size_bytes
       from attachments
       where attachments.download_status = 'downloaded'
         and attachments.local_path is not null
@@ -155,31 +161,40 @@ export class MediaProcessingService {
           lower(coalesce(attachments.mime_type, '')) like 'image/%'
           or lower(coalesce(attachments.original_file_name, attachments.local_path, '')) ~ '\\.(bmp|gif|jpe?g|png|tiff?|webp)$'
         )
-        and not exists (
-          select 1
-          from processing_jobs existing
-          where existing.type = ${OCR_PROCESSING_JOB}
-            and existing.subject_kind = 'attachment'
-            and existing.subject_id = attachments.id
-        )
       order by attachments.created_at asc
       limit ${limit}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
     `);
-    return result.rows.length;
+    let created = 0;
+    for (const row of result.rows) {
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: OCR_PROCESSING_JOB,
+        subjectKind: "attachment",
+        subjectId: row.id,
+        generationKey: "phase3:ocr:v1",
+        inputHash: hashProcessingInput(row),
+        payload: { phase: 3, processorVersion: 1, artifactType: "ocr_text" },
+        maxAttempts: 3,
+      });
+      if (changed) created += 1;
+    }
+    return created;
   }
 
   private async enqueueAsr(limit: number) {
     if (limit < 1) return 0;
-    const result = await this.db.execute<{ id: string }>(sql`
-      insert into processing_jobs (type, subject_kind, subject_id, payload, max_attempts)
+    const result = await this.db.execute<{
+      id: string;
+      local_path: string | null;
+      sha256: string | null;
+      mime_type: string | null;
+      size_bytes: number | null;
+    }>(sql`
       select
-        ${ASR_PROCESSING_JOB},
-        'attachment',
         attachments.id,
-        jsonb_build_object('phase', 3, 'processorVersion', 1, 'artifactType', 'transcript'),
-        3
+        attachments.local_path,
+        attachments.sha256,
+        attachments.mime_type,
+        attachments.size_bytes
       from attachments
       where attachments.download_status = 'downloaded'
         and attachments.local_path is not null
@@ -188,19 +203,23 @@ export class MediaProcessingService {
           or lower(coalesce(attachments.mime_type, '')) like 'video/%'
           or lower(coalesce(attachments.original_file_name, attachments.local_path, '')) ~ '\\.(aac|flac|m4a|mkv|mov|mp3|mp4|mpeg|oga|ogg|opus|wav|webm)$'
         )
-        and not exists (
-          select 1
-          from processing_jobs existing
-          where existing.type = ${ASR_PROCESSING_JOB}
-            and existing.subject_kind = 'attachment'
-            and existing.subject_id = attachments.id
-        )
       order by attachments.created_at asc
       limit ${limit}
-      on conflict (type, subject_kind, subject_id) do nothing
-      returning id
     `);
-    return result.rows.length;
+    let created = 0;
+    for (const row of result.rows) {
+      const changed = await this.processingJobs.enqueueOrRefresh({
+        type: ASR_PROCESSING_JOB,
+        subjectKind: "attachment",
+        subjectId: row.id,
+        generationKey: "phase3:asr:v1",
+        inputHash: hashProcessingInput(row),
+        payload: { phase: 3, processorVersion: 1, artifactType: "transcript" },
+        maxAttempts: 3,
+      });
+      if (changed) created += 1;
+    }
+    return created;
   }
 
   private async processJob(job: ProcessingJob) {

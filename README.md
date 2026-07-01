@@ -23,7 +23,7 @@ Edit `.env`:
 - `DATABASE_URL` - PostgreSQL connection string.
 - `STORAGE_ROOT` - local file storage directory.
 - `MAX_ATTACHMENT_BYTES` - max Telegram file size to download.
-- `BOT_ACKNOWLEDGEMENTS` - set `false` to disable save confirmations.
+- `BOT_ACKNOWLEDGEMENTS` - save confirmations are disabled by default; set `true` to enable them.
 - `OCR_SERVICE_URL` - optional OCR HTTP service URL.
 - `ASR_SERVICE_URL` - optional ASR HTTP service URL.
 - `EMBEDDING_SERVICE_URL` - optional Ollama-compatible embedding API base URL.
@@ -61,6 +61,8 @@ docker compose up --build
 PostgreSQL data is stored in the `postgres_data` volume. Telegram files are stored in the `telegram_files` volume mounted at `/app/data/storage`.
 
 `docker-compose.yml` overrides `DATABASE_URL` for the app container to use the `postgres` service hostname. Keep `.env` with `localhost` when running the bot directly on the host.
+
+Docker Compose starts `app`, `worker`, and `postgres` by default. The `worker` service runs automatic preprocessing, configured OCR/ASR, configured image analysis, configured embeddings, and configured LLM classification. Manual processing commands remain available for operations, but daily use should not require them.
 
 Optional OCR and ASR services are behind Docker Compose profiles and are not built or started by the normal app deployment:
 
@@ -156,22 +158,20 @@ To find your Telegram user ID, message `@userinfobot` or temporarily inspect the
 
 ## Bot Commands
 
-- `/start` - basic startup message.
-- `/help` - command summary.
-- `/recent` - last saved items.
-- `/status` - PostgreSQL, storage, processing queues, embeddings, and proposal stats.
+User commands shown by `/help`:
+
 - `/search query` - PostgreSQL full-text search over message text/captions and file names.
+- `/find query` - alias for `/search`.
+- `/recent` - last saved items.
+- `/settings` - current bot/provider settings.
+- `/help` - command summary.
+
+Owner-only operational commands are still available but hidden from normal help:
+
+- `/status` - PostgreSQL, storage, processing queues, bundles, embeddings, and proposal stats.
 - `/retry_attachments` - retry failed or pending attachment downloads that are due.
-- `/preprocess` - enqueue and run a small deterministic preprocessing batch.
-- `/process_media` - enqueue and run a small OCR/ASR batch.
-- `/process_media 10 ocr` - OCR-only batch.
-- `/process_media 10 asr` - ASR-only batch.
-- `/analyze_images` - enqueue and run a small LLM image-analysis batch.
-- `/embed` - enqueue and run a small embedding indexing batch.
-- `/embed 20 reindex` - re-open existing embedding jobs and rebuild changed vectors.
+- `/preprocess`, `/process_media`, `/analyze_images`, `/embed`, `/classify` - manual processing batches.
 - `/semantic query` - semantic search over indexed embeddings.
-- `/classify` - enqueue and run a small LLM classification batch.
-- `/classify 10 reclassify` - re-open existing classification jobs.
 - `/proposals` - show recent proposed records.
 
 ## Development Commands
@@ -182,6 +182,7 @@ npm run lint
 npm test
 npm run test:integration
 npm run build
+npm run worker
 npm run attachments:retry
 npm run preprocess:run
 npm run media:process
